@@ -15,8 +15,6 @@
  */
 package io.zeebe.broker.it;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.ExecutionException;
@@ -24,16 +22,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
-import io.zeebe.broker.Broker;
-import io.zeebe.broker.transport.TransportServiceNames;
-import io.zeebe.servicecontainer.*;
-import io.zeebe.servicecontainer.impl.ServiceContainerImpl;
-import io.zeebe.util.allocation.DirectBufferAllocator;
 import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 
+import io.zeebe.broker.Broker;
+import io.zeebe.broker.transport.TransportServiceNames;
+import io.zeebe.servicecontainer.Service;
+import io.zeebe.servicecontainer.ServiceContainer;
+import io.zeebe.servicecontainer.ServiceName;
+import io.zeebe.servicecontainer.ServiceStartContext;
+import io.zeebe.servicecontainer.ServiceStopContext;
+import io.zeebe.util.allocation.DirectBufferAllocator;
+
 public class EmbeddedBrokerRule extends ExternalResource
 {
+
+    static final ServiceName<Object> AWAIT_BROKER_SERVICE_NAME = ServiceName.newServiceName("testService", Object.class);
     protected static final Logger LOG = TestLoggers.TEST_LOGGER;
 
     protected Broker broker;
@@ -98,7 +102,7 @@ public class EmbeddedBrokerRule extends ExternalResource
         {
             // Hack: block until default task queue log has been installed
             // How to make it better: https://github.com/zeebe-io/zeebe/issues/196
-            serviceContainer.createService(TestService.NAME, new TestService())
+            serviceContainer.createService(AWAIT_BROKER_SERVICE_NAME, new NoneService())
                 .dependency(TransportServiceNames.serverTransport(TransportServiceNames.CLIENT_API_SERVER_NAME))
                 .install()
                 .get(10, TimeUnit.SECONDS);
@@ -110,40 +114,25 @@ public class EmbeddedBrokerRule extends ExternalResource
         }
     }
 
-    public <S> Service<S> getService(final ServiceName<S> serviceName)
+    protected class NoneService implements Service<Object>
     {
-        final ServiceContainerImpl serviceContainer = (ServiceContainerImpl) broker.getBrokerContext().getServiceContainer();
-
-        final Service<S> service = serviceContainer.getService(serviceName);
-
-        assertThat(service).isNotNull();
-
-        return service;
-    }
-
-    static class TestService implements Service<TestService>
-    {
-
-        static final ServiceName<TestService> NAME = ServiceName.newServiceName("testService", TestService.class);
-
         @Override
         public void start(ServiceStartContext startContext)
         {
-
         }
 
         @Override
         public void stop(ServiceStopContext stopContext)
         {
-
         }
 
         @Override
-        public TestService get()
+        public Object get()
         {
-            return this;
+            return null;
         }
 
     }
+
 
 }
