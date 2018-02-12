@@ -1,180 +1,212 @@
-/*
- * Copyright © 2017 camunda services GmbH (info@camunda.com)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package io.zeebe.client.clustering.impl;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import org.agrona.DirectBuffer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.zeebe.client.clustering.Topology;
-import io.zeebe.client.impl.Loggers;
+import io.zeebe.client.cmd.BrokerErrorException;
+import io.zeebe.client.impl.ControlMessageRequestHandler;
+import io.zeebe.protocol.clientapi.ErrorResponseDecoder;
+import io.zeebe.protocol.clientapi.MessageHeaderDecoder;
+import io.zeebe.transport.ClientOutput;
+import io.zeebe.transport.ClientRequest;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.RemoteAddress;
-import io.zeebe.transport.SocketAddress;
-import io.zeebe.util.DeferredCommandContext;
-import io.zeebe.util.actor.Actor;
-import io.zeebe.util.time.ClockUtil;
+import io.zeebe.util.sched.ZbActor;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
-
-public class ClientTopologyManager implements Actor
+public class ClientTopologyManager extends ZbActor
 {
     /**
      * Interval in which the topology is refreshed even if the client is idle
      */
-    public static final long MAX_REFRESH_INTERVAL_MILLIS = Duration.ofSeconds(10).toMillis();
+    public static final Duration MAX_REFRESH_INTERVAL_MILLIS = Duration.ofSeconds(10);
 
     /**
      * Shortest possible interval in which the topology is refreshed,
      * even if the client is constantly making new requests that require topology refresh
      */
-    public static final long MIN_REFRESH_INTERVAL_MILLIS = 300;
+    public static final Duration MIN_REFRESH_INTERVAL_MILLIS = Duration.ofMillis(300);
 
-    protected final DeferredCommandContext commandContext = new DeferredCommandContext();
-
-    protected final ClientTopologyController clientTopologyController;
-    protected final List<CompletableFuture<Void>> refreshFutures;
-
+    protected ClientOutput output;
+    protected ClientTransport transport;
     protected TopologyImpl topology;
-    private ClientTransport transport;
-    protected RemoteAddress topologyEndpoint;
 
-    protected long nextLatestPossibleRequestTimestamp = 0L;
-    protected long nextEarliestPossibleRequestTimestamp = 0L;
+    protected List<CompletableActorFuture<Topology>> nextTopologyFutures = new ArrayList<>();
+    protected ControlMessageRequestHandler requestWriter;
 
-    public ClientTopologyManager(final ClientTransport transport, final ObjectMapper objectMapper, final SocketAddress... initialBrokers)
+    protected int refreshAttempt = 0;
+
+    public ClientTopologyManager(ClientTransport transport, ObjectMapper objectMapper, RemoteAddress initialContact)
     {
         this.transport = transport;
-        this.clientTopologyController = new ClientTopologyController(
-                transport,
-                objectMapper,
-                this::onNewTopology,
-                this::failRefreshFutures);
-        this.topology = new TopologyImpl();
+        this.output = transport.getOutput();
 
-        for (SocketAddress socketAddress : initialBrokers)
-        {
-            topology.addBroker(transport.registerRemoteAddress(socketAddress));
-        }
-
-        this.refreshFutures = new ArrayList<>();
-        topologyEndpoint = topology.getRandomBroker();
+        this.requestWriter = new ControlMessageRequestHandler(objectMapper);
+        this.requestWriter.configure(new RequestTopologyCmdImpl(null));
     }
 
     @Override
-    public int doWork() throws Exception
+    protected void onActorStarted()
     {
-        int workCount = 0;
+        actor.run(this::refreshTopology);
+        actor.runAtFixedRate(MIN_REFRESH_INTERVAL_MILLIS,
+            () ->
+            {
+                if (!nextTopologyFutures.isEmpty())
+                {
+                    refreshTopology();
+                }
+            });
+    }
 
-        workCount += commandContext.doWork();
+    @Override
+    protected void onActorClosing()
+    {
+        // TODO Auto-generated method stub
+    }
 
-        if (clientTopologyController.isRequestInProgress())
+    public ActorFuture<Topology> getTopology()
+    {
+        return actor.call(() -> topology);
+    }
+
+    public ActorFuture<Topology> requestTopology()
+    {
+        final CompletableActorFuture<Topology> future = new CompletableActorFuture<>();
+
+        actor.call(() ->
         {
-            workCount += clientTopologyController.doWork();
+            nextTopologyFutures.add(future);
+            // TODO: trigger next topology refresh
+        });
+
+        return future;
+    }
+
+    public void provideTopology(TopologyResponse topology)
+    {
+        actor.call(() ->
+        {
+            // TODO: not sure we should complete the refresh futures in this case,
+            //   as the response could be older than the time when the future was submitted
+            onNewTopology(topology);
+        });
+    }
+
+    protected void refreshTopology()
+    {
+        final RemoteAddress endpoint = topology.getRandomBroker();
+        // TODO: hier könnte man jetzt den Endpoint mit jedem Fehlschlag wechseln
+        final ActorFuture<ClientRequest> request = output.sendRequestWithRetry(endpoint, requestWriter, Duration.ofSeconds(1));
+
+        if (request != null)
+        {
+            refreshAttempt++;
+            actor.await(request, this::handleResponse);
+            actor.runDelayed(MAX_REFRESH_INTERVAL_MILLIS, scheduleIdleRefresh());
         }
         else
         {
-            if (shouldRefreshTopology() && !clientTopologyController.isRequestInProgress())
+            actor.run(this::refreshTopology);
+            actor.yield();
+        }
+    }
+
+    /**
+     * Only schedules topology refresh if there was no refresh attempt in the last ten seconds
+     */
+    protected Runnable scheduleIdleRefresh()
+    {
+        final int currentAttempt = refreshAttempt;
+
+        return () ->
+        {
+            // if no topology refresh attempt was made in the meantime
+            if (currentAttempt == refreshAttempt)
             {
-                recordTopologyRefreshAttempt();
-                clientTopologyController.triggerRefresh(topologyEndpoint);
-                workCount++;
+                actor.run(this::refreshTopology);
+            }
+        };
+    }
+
+    protected void handleResponse(ClientRequest result, Throwable t)
+    {
+        if (t == null)
+        {
+            try
+            {
+                final TopologyResponse topologyResponse = decodeTopology(result.get());
+                onNewTopology(topologyResponse);
+            }
+            catch (InterruptedException | ExecutionException e)
+            {
+                failRefreshFutures(e);
             }
         }
-
-        return workCount;
-    }
-
-    public Topology getTopology()
-    {
-        return topology;
-    }
-
-    public RemoteAddress getLeaderForPartition(final int partition)
-    {
-        return topology.getLeaderForPartition(partition);
-    }
-
-    public RemoteAddress getArbitraryBroker()
-    {
-        return topology.getRandomBroker();
-    }
-
-    public CompletableFuture<Void> refreshNow()
-    {
-        return commandContext.runAsync(future ->
-        {
-            refreshFutures.add(future);
-            topologyEndpoint = topology.getRandomBroker(); // switch to a different broker on explicit refresh
-        });
-    }
-
-    public int getPartitionForTopic(String topic, int offset)
-    {
-        final List<Integer> partitions = topology.getPartitionsOfTopic(topic);
-
-        if (partitions != null && !partitions.isEmpty())
-        {
-            return partitions.get(offset % partitions.size());
-        }
         else
         {
-            return -1;
+            failRefreshFutures(t);
         }
-    }
-
-    protected boolean shouldRefreshTopology()
-    {
-        final long now = ClockUtil.getCurrentTimeInMillis();
-        return nextLatestPossibleRequestTimestamp < now ||
-                (!refreshFutures.isEmpty() && nextEarliestPossibleRequestTimestamp < now);
-    }
-
-    protected CompletableFuture<TopologyResponse> updateTopology(final TopologyResponse response)
-    {
-        return commandContext.runAsync(future ->
-        {
-            onNewTopology(response);
-            future.complete(response);
-        });
     }
 
     protected void onNewTopology(TopologyResponse topologyResponse)
     {
-        Loggers.CLIENT_LOGGER.debug("On new topology: {}", topologyResponse);
-        final TopologyImpl topology = new TopologyImpl();
-        topology.update(topologyResponse, transport);
-        this.topology = topology;
-
-        refreshFutures.forEach(f -> f.complete(null));
-        refreshFutures.clear();
+        this.topology = new TopologyImpl(topologyResponse, transport::registerRemoteAddress);
+        completeRefreshFutures();
     }
 
-    protected void failRefreshFutures(Exception e)
+    protected void completeRefreshFutures()
     {
-        refreshFutures.forEach(f -> f.completeExceptionally(e));
-        refreshFutures.clear();
+        nextTopologyFutures.forEach(f -> f.complete(topology));
+        nextTopologyFutures.clear();
     }
 
-    protected void recordTopologyRefreshAttempt()
+    protected void failRefreshFutures(Throwable t)
     {
-        final long now = ClockUtil.getCurrentTimeInMillis();
-        nextLatestPossibleRequestTimestamp = now + MAX_REFRESH_INTERVAL_MILLIS;
-        nextEarliestPossibleRequestTimestamp = now + MIN_REFRESH_INTERVAL_MILLIS;
+        nextTopologyFutures.forEach(f -> f.completeExceptionally("Could not refresh topology", t));
+        nextTopologyFutures.clear();
+    }
+
+    // TODO: encapsulate this and the following method somewhere
+    protected final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
+    protected final ErrorResponseDecoder errorResponseDecoder = new ErrorResponseDecoder();
+
+    protected TopologyResponse decodeTopology(DirectBuffer encodedTopology)
+    {
+        messageHeaderDecoder.wrap(encodedTopology, 0);
+
+        final int blockLength = messageHeaderDecoder.blockLength();
+        final int version = messageHeaderDecoder.version();
+
+        final int responseMessageOffset = messageHeaderDecoder.encodedLength();
+
+        if (requestWriter.handlesResponse(messageHeaderDecoder))
+        {
+            try
+            {
+                return (TopologyResponse) requestWriter.getResult(encodedTopology, responseMessageOffset, blockLength, version);
+            }
+            catch (final Exception e)
+            {
+                throw new RuntimeException("Unable to parse topic list from broker response", e);
+            }
+        }
+        else if (messageHeaderDecoder.schemaId() == ErrorResponseDecoder.SCHEMA_ID && messageHeaderDecoder.templateId() == ErrorResponseDecoder.TEMPLATE_ID)
+        {
+            errorResponseDecoder.wrap(encodedTopology, 0, blockLength, version);
+            throw new BrokerErrorException(errorResponseDecoder.errorCode(), errorResponseDecoder.errorData());
+        }
+        else
+        {
+            throw new RuntimeException(String.format("Unexpected response format. Schema %s and template %s.", messageHeaderDecoder.schemaId(), messageHeaderDecoder.templateId()));
+        }
     }
 }
