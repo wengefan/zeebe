@@ -25,15 +25,21 @@ public class RequestTopologyCmdImpl extends ControlMessageRequest<TopologyRespon
 {
     protected static final Object EMPTY_REQUEST = new HashMap<>();
 
-    public RequestTopologyCmdImpl(RequestManager commandManager)
+    protected final ClientTopologyManager topologyListener;
+
+    public RequestTopologyCmdImpl(RequestManager commandManager, ClientTopologyManager topologyListener)
     {
         super(commandManager, ControlMessageType.REQUEST_TOPOLOGY, TopologyResponse.class);
+        this.topologyListener = topologyListener;
     }
 
     @Override
     public void onResponse(TopologyResponse response)
     {
-        client.getTopologyManager().provideTopology(response);
+        if (topologyListener != null)
+        {
+            topologyListener.provideTopology(response);
+        }
     }
 
     @Override

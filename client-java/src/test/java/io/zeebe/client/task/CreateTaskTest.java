@@ -17,6 +17,7 @@ package io.zeebe.client.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -40,10 +41,12 @@ import io.zeebe.protocol.clientapi.ExecuteCommandRequestEncoder;
 import io.zeebe.test.broker.protocol.brokerapi.ExecuteCommandRequest;
 import io.zeebe.test.broker.protocol.brokerapi.StubBrokerRule;
 import io.zeebe.test.util.MsgPackUtil;
+import io.zeebe.util.sched.testing.ActorSchedulerRule;
 
 public class CreateTaskTest
 {
 
+    public ActorSchedulerRule schedulerRule = new ActorSchedulerRule();
     public ClientRule clientRule = new ClientRule();
     public StubBrokerRule brokerRule = new StubBrokerRule();
 
@@ -62,6 +65,12 @@ public class CreateTaskTest
     public void setUp()
     {
         this.client = clientRule.getClient();
+    }
+
+    @Test
+    public void todo()
+    {
+        fail("Man sieht das hier manchmal in den Logs: 17:39:27.659 [Finalizer] WARN  io.zeebe.util.allocation - Allocated 16778640 bytes direct, which are not released. Releasing bytes.");
     }
 
     @Test

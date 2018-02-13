@@ -79,9 +79,9 @@ public class SubscriptionManager implements TransportListener, Actor
 
         this.topicSubscriptionPrefetchCapacity = topicSubscriptionPrefetchCapacity;
         this.topologyManager = client.getTopologyManager();
-
-        this.acquisitionActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("acquisition");
-        this.executorActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("executors", numExecutionThreads);
+//
+//        this.acquisitionActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("acquisition");
+//        this.executorActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("executors", numExecutionThreads);
     }
 
     public void start()

@@ -25,8 +25,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.agrona.concurrent.status.CountersManager;
 import org.msgpack.jackson.dataformat.MessagePackFactory;
+import org.slf4j.Logger;
 
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -50,12 +50,7 @@ import io.zeebe.transport.ClientTransportBuilder;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.transport.Transports;
-import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
-import io.zeebe.util.actor.ActorSchedulerBuilder;
 import io.zeebe.util.sched.ZbActorScheduler;
-
-import org.slf4j.Logger;
 
 public class ZeebeClientImpl implements ZeebeClient
 {
@@ -85,9 +80,6 @@ public class ZeebeClientImpl implements ZeebeClient
     protected final ClientTopologyManager topologyManager;
     protected final RequestManager apiCommandManager;
 
-    protected ActorReference topologyManagerActorReference;
-    protected ActorReference commandManagerActorReference;
-
     protected final MsgPackConverter msgPackConverter;
 
     protected boolean isClosed;
@@ -105,8 +97,9 @@ public class ZeebeClientImpl implements ZeebeClient
         final int sendBufferSize = Integer.parseInt(properties.getProperty(CLIENT_SENDBUFFER_SIZE));
 
         // TODO: init properly
-        this.scheduler = new ZbActorScheduler(2, null);
-
+        final int numThreads = Math.min(1, Runtime.getRuntime().availableProcessors() - 1);
+        this.scheduler = new ZbActorScheduler(numThreads);
+        this.scheduler.start();
 
         dataFrameReceiveBuffer = Dispatchers.create("receive-buffer")
             .bufferSize(1024 * 1024 * sendBufferSize)
@@ -153,25 +146,26 @@ public class ZeebeClientImpl implements ZeebeClient
 
         final int prefetchCapacity = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TOPIC_SUBSCRIPTION_PREFETCH_CAPACITY));
 
-        final long requestTimeout = Long.parseLong(properties.getProperty(CLIENT_REQUEST_TIMEOUT_SEC));
+        final Duration requestTimeout = Duration.ofSeconds(Long.parseLong(properties.getProperty(CLIENT_REQUEST_TIMEOUT_SEC)));
 
         final RemoteAddress initialContactPoint = transport.registerRemoteAddress(contactPoint);
 
         topologyManager = new ClientTopologyManager(transport, objectMapper, initialContactPoint);
         scheduler.submitActor(topologyManager);
 
-        subscriptionManager = new SubscriptionManager(
-                this,
-                numExecutionThreads,
-                prefetchCapacity);
-        transport.registerChannelListener(subscriptionManager);
+//        subscriptionManager = new SubscriptionManager(
+//                this,
+//                numExecutionThreads,
+//                prefetchCapacity);
+//        transport.registerChannelListener(subscriptionManager);
 
-        apiCommandManager = new RequestManager(transport, topologyManager, new RoundRobinDispatchStrategy(topologyManager), objectMapper, maxRequests, requestTimeout);
+        apiCommandManager = new RequestManager(
+                transport.getOutput(),
+                topologyManager,
+                objectMapper,
+                requestTimeout);
 
-        commandManagerActorReference = transportActorScheduler.schedule(apiCommandManager);
-        topologyManagerActorReference = transportActorScheduler.schedule(topologyManager);
-
-        subscriptionManager.start();
+//        subscriptionManager.start();
     }
 
     @Override
@@ -184,16 +178,10 @@ public class ZeebeClientImpl implements ZeebeClient
 
         isClosed = true;
 
-        subscriptionManager.closeAllSubscribers();
-        subscriptionManager.stop();
+//        subscriptionManager.closeAllSubscribers();
+//        subscriptionManager.stop();
 
-        topologyManagerActorReference.close();
-        topologyManagerActorReference = null;
-
-        commandManagerActorReference.close();
-        commandManagerActorReference = null;
-
-        subscriptionManager.close();
+//        subscriptionManager.close();
 
         try
         {
@@ -235,7 +223,7 @@ public class ZeebeClientImpl implements ZeebeClient
     @Override
     public Request<TopologyResponse> requestTopology()
     {
-        return new RequestTopologyCmdImpl(apiCommandManager);
+        return new RequestTopologyCmdImpl(apiCommandManager, topologyManager);
     }
 
     @Override
@@ -289,5 +277,10 @@ public class ZeebeClientImpl implements ZeebeClient
     public MsgPackConverter getMsgPackConverter()
     {
         return msgPackConverter;
+    }
+
+    public ZbActorScheduler getScheduler()
+    {
+        return scheduler;
     }
 }

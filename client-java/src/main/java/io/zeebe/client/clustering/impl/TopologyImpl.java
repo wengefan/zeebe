@@ -23,6 +23,7 @@ import java.util.Random;
 import java.util.function.Function;
 
 import org.agrona.collections.Int2ObjectHashMap;
+import org.agrona.collections.IntArrayList;
 
 import io.zeebe.client.clustering.Topology;
 import io.zeebe.transport.RemoteAddress;
@@ -36,7 +37,7 @@ public class TopologyImpl implements Topology
 {
     protected final Int2ObjectHashMap<RemoteAddress> topicLeaders = new Int2ObjectHashMap<>();
     protected final List<RemoteAddress> brokers = new ArrayList<>();
-    protected final Map<String, List<Integer>> partitionsByTopic = new HashMap<>();
+    protected final Map<String, IntArrayList> partitionsByTopic = new HashMap<>();
 
     protected final Random randomBroker = new Random();
 
@@ -59,12 +60,13 @@ public class TopologyImpl implements Topology
                     final String topicName = p.getTopicName();
                     final int partitionId = p.getPartitionId();
 
+                    // TODO: can we remove that check? => want to expose a partition even when it does not have a leader
                     if (p.isLeader())
                     {
                         topicLeaders.put(partitionId, remoteAddress);
                         partitionsByTopic
-                            .computeIfAbsent(topicName, t -> new ArrayList<>())
-                            .add(partitionId);
+                            .computeIfAbsent(topicName, t -> new IntArrayList())
+                            .addInt(partitionId);
                     }
                 });
             });
@@ -91,9 +93,23 @@ public class TopologyImpl implements Topology
     }
 
     @Override
-    public List<Integer> getPartitionsOfTopic(String topic)
+    public IntArrayList getPartitionsOfTopic(String topic)
     {
         return partitionsByTopic.get(topic);
+    }
+
+    public int getPartition(String topic, int offset)
+    {
+        final IntArrayList partitions = getPartitionsOfTopic(topic);
+
+        if (partitions != null && !partitions.isEmpty())
+        {
+            return partitions.getInt(offset % partitions.size());
+        }
+        else
+        {
+            return -1;
+        }
     }
 
     @Override

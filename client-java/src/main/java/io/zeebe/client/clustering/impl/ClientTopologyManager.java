@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.agrona.DirectBuffer;
 
@@ -35,12 +36,12 @@ public class ClientTopologyManager extends ZbActor
      */
     public static final Duration MIN_REFRESH_INTERVAL_MILLIS = Duration.ofMillis(300);
 
-    protected ClientOutput output;
-    protected ClientTransport transport;
-    protected TopologyImpl topology;
+    protected final ClientOutput output;
+    protected final ClientTransport transport;
 
-    protected List<CompletableActorFuture<Topology>> nextTopologyFutures = new ArrayList<>();
-    protected ControlMessageRequestHandler requestWriter;
+    protected final AtomicReference<TopologyImpl> topology;
+    protected final List<CompletableActorFuture<Topology>> nextTopologyFutures = new ArrayList<>();
+    protected final ControlMessageRequestHandler requestWriter;
 
     protected int refreshAttempt = 0;
 
@@ -49,8 +50,8 @@ public class ClientTopologyManager extends ZbActor
         this.transport = transport;
         this.output = transport.getOutput();
 
-        this.requestWriter = new ControlMessageRequestHandler(objectMapper);
-        this.requestWriter.configure(new RequestTopologyCmdImpl(null));
+        this.topology = new AtomicReference<>(new TopologyImpl(initialContact));
+        this.requestWriter = new ControlMessageRequestHandler(objectMapper, new RequestTopologyCmdImpl(null, null));
     }
 
     @Override
@@ -73,9 +74,9 @@ public class ClientTopologyManager extends ZbActor
         // TODO Auto-generated method stub
     }
 
-    public ActorFuture<Topology> getTopology()
+    public TopologyImpl getTopology()
     {
-        return actor.call(() -> topology);
+        return topology.get();
     }
 
     public ActorFuture<Topology> requestTopology()
@@ -103,7 +104,7 @@ public class ClientTopologyManager extends ZbActor
 
     protected void refreshTopology()
     {
-        final RemoteAddress endpoint = topology.getRandomBroker();
+        final RemoteAddress endpoint = topology.get().getRandomBroker();
         // TODO: hier könnte man jetzt den Endpoint mit jedem Fehlschlag wechseln
         final ActorFuture<ClientRequest> request = output.sendRequestWithRetry(endpoint, requestWriter, Duration.ofSeconds(1));
 
@@ -159,13 +160,13 @@ public class ClientTopologyManager extends ZbActor
 
     protected void onNewTopology(TopologyResponse topologyResponse)
     {
-        this.topology = new TopologyImpl(topologyResponse, transport::registerRemoteAddress);
+        this.topology.set(new TopologyImpl(topologyResponse, transport::registerRemoteAddress));
         completeRefreshFutures();
     }
 
     protected void completeRefreshFutures()
     {
-        nextTopologyFutures.forEach(f -> f.complete(topology));
+        nextTopologyFutures.forEach(f -> f.complete(topology.get()));
         nextTopologyFutures.clear();
     }
 
@@ -209,4 +210,5 @@ public class ClientTopologyManager extends ZbActor
             throw new RuntimeException(String.format("Unexpected response format. Schema %s and template %s.", messageHeaderDecoder.schemaId(), messageHeaderDecoder.templateId()));
         }
     }
+
 }
