@@ -33,13 +33,12 @@ public class EventSubscribers
     protected static final Logger LOGGER = Loggers.SUBSCRIPTION_LOGGER;
 
     // partitionId => subscriberKey => subscription (subscriber keys are not guaranteed to be globally unique)
-    protected Int2ObjectHashMap<Long2ObjectHashMap<EventSubscriber>> activeSubscribers = new Int2ObjectHashMap<>();
+    protected Int2ObjectHashMap<Long2ObjectHashMap<EventSubscriber>> subscribers = new Int2ObjectHashMap<>();
 
-    protected final List<EventSubscriber> subscribers = new CopyOnWriteArrayList<>();
-    protected final List<EventSubscriberGroup> pollableSubscriberGroups = new CopyOnWriteArrayList<>();
-    protected final List<EventSubscriberGroup> managedSubscriberGroups = new CopyOnWriteArrayList<>();
+    protected final List<EventSubscriberGroup2> pollableSubscriberGroups = new CopyOnWriteArrayList<>();
+    protected final List<EventSubscriberGroup2> managedSubscriberGroups = new CopyOnWriteArrayList<>();
 
-    public void addGroup(final EventSubscriberGroup subscription)
+    public void addGroup(final EventSubscriberGroup2 subscription)
     {
         if (subscription.isManagedGroup())
         {
@@ -51,40 +50,30 @@ public class EventSubscribers
         }
     }
 
-    public void addSubscriber(final EventSubscriber subscriber)
-    {
-        this.subscribers.add(subscriber);
-    }
-
-    public void removeSubscriber(final EventSubscriber subscriber)
-    {
-        this.subscribers.remove(subscriber);
-    }
-
-    protected void addPollableGroup(final EventSubscriberGroup subscription)
+    protected void addPollableGroup(final EventSubscriberGroup2 subscription)
     {
         this.pollableSubscriberGroups.add(subscription);
     }
 
-    protected void addManagedGroup(final EventSubscriberGroup subscription)
+    protected void addManagedGroup(final EventSubscriberGroup2 subscription)
     {
         this.managedSubscriberGroups.add(subscription);
     }
 
     public void closeAllGroups()
     {
-        for (final EventSubscriberGroup group : pollableSubscriberGroups)
+        for (final EventSubscriberGroup2 group : pollableSubscriberGroups)
         {
             closeGroup(group);
         }
 
-        for (final EventSubscriberGroup group : managedSubscriberGroups)
+        for (final EventSubscriberGroup2 group : managedSubscriberGroups)
         {
             closeGroup(group);
         }
     }
 
-    protected void closeGroup(EventSubscriberGroup group)
+    protected void closeGroup(EventSubscriberGroup2 group)
     {
         try
         {
@@ -109,25 +98,25 @@ public class EventSubscribers
         });
     }
 
-    public void activate(EventSubscriber subscriber)
+    public void add(EventSubscriber subscriber)
     {
-        this.activeSubscribers
+        this.subscribers
             .computeIfAbsent(subscriber.getPartitionId(), partitionId -> new Long2ObjectHashMap<>())
             .put(subscriber.getSubscriberKey(), subscriber);
     }
 
-    public void deactivate(final EventSubscriber subscriber)
+    public void remove(final EventSubscriber subscriber)
     {
         final int partitionId = subscriber.getPartitionId();
 
-        final Long2ObjectHashMap<EventSubscriber> subscribersForPartition = activeSubscribers.get(partitionId);
+        final Long2ObjectHashMap<EventSubscriber> subscribersForPartition = subscribers.get(partitionId);
         if (subscribersForPartition != null)
         {
             subscribersForPartition.remove(subscriber.getSubscriberKey());
 
             if (subscribersForPartition.isEmpty())
             {
-                activeSubscribers.remove(partitionId);
+                subscribers.remove(partitionId);
             }
         }
 
@@ -141,7 +130,7 @@ public class EventSubscribers
 
     public EventSubscriber getSubscriber(final int partitionId, final long subscriberKey)
     {
-        final Long2ObjectHashMap<EventSubscriber> subscribersForPartition = activeSubscribers.get(partitionId);
+        final Long2ObjectHashMap<EventSubscriber> subscribersForPartition = subscribers.get(partitionId);
 
         if (subscribersForPartition != null)
         {
@@ -151,18 +140,11 @@ public class EventSubscribers
         return null;
     }
 
-    public int maintainState()
-    {
-        int workCount = forAllDo(managedSubscriberGroups, s -> s.maintainState());
-        workCount += forAllDo(pollableSubscriberGroups, s -> s.maintainState());
-        return workCount;
-    }
-
-    protected int forAllDo(List<EventSubscriberGroup> groups, ToIntFunction<EventSubscriberGroup> action)
+    protected int forAllDo(List<EventSubscriberGroup2> groups, ToIntFunction<EventSubscriberGroup2> action)
     {
         int workCount = 0;
 
-        for (EventSubscriberGroup group : groups)
+        for (EventSubscriberGroup2 group : groups)
         {
             workCount += action.applyAsInt(group);
         }
@@ -170,9 +152,9 @@ public class EventSubscribers
         return workCount;
     }
 
-    protected void forAllDoConsume(List<EventSubscriberGroup> groups, Consumer<EventSubscriberGroup> action)
+    protected void forAllDoConsume(List<EventSubscriberGroup2> groups, Consumer<EventSubscriberGroup2> action)
     {
-        for (EventSubscriberGroup subscription : groups)
+        for (EventSubscriberGroup2 subscription : groups)
         {
             action.accept(subscription);
         }
@@ -181,18 +163,5 @@ public class EventSubscribers
     public int pollManagedSubscribers()
     {
         return forAllDo(managedSubscriberGroups, s -> s.poll());
-    }
-
-    public boolean isAnySubscriberOpening()
-    {
-        for (EventSubscriber subscriber : subscribers)
-        {
-            if (subscriber.isOpening())
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

@@ -61,7 +61,7 @@ public class RequestManager
         return waitAndResolve(executeAsync(controlMessage));
     }
 
-    protected <E> Future<E> executeAsync(final RequestResponseHandler requestHandler)
+    protected <E> ActorFuture<E> executeAsync(final RequestResponseHandler requestHandler)
     {
         final Supplier<ActorFuture<RemoteAddress>> remoteProvider = determineRemoteProvider(requestHandler);
 
@@ -152,13 +152,13 @@ public class RequestManager
 
     }
 
-    public <E> Future<E> executeAsync(final ControlMessageRequest<E> controlMessage)
+    public <E> ActorFuture<E> executeAsync(final ControlMessageRequest<E> controlMessage)
     {
         final ControlMessageRequestHandler requestHandler = new ControlMessageRequestHandler(msgPackMapper, controlMessage);
         return executeAsync(requestHandler);
     }
 
-    public <E extends Event> Future<E> executeAsync(final CommandImpl<E> command)
+    public <E extends Event> ActorFuture<E> executeAsync(final CommandImpl<E> command)
     {
         final CommandRequestHandler requestHandler = new CommandRequestHandler(msgPackMapper, command);
         return executeAsync(requestHandler);
@@ -188,9 +188,10 @@ public class RequestManager
         }
     }
 
-    protected static class ResponseFuture<E> implements Future<E>
+    // TODO: must close the transport future as soon as response is deserialized
+    protected static class ResponseFuture<E> implements ActorFuture<E>
     {
-        protected final Future<ClientRequest> transportFuture;
+        protected final ActorFuture<ClientRequest> transportFuture;
         protected final RequestResponseHandler responseHandler;
         protected final ErrorResponseHandler errorHandler = new ErrorResponseHandler();
         protected final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
@@ -198,7 +199,7 @@ public class RequestManager
         protected E result = null;
         protected ExecutionException failure = null;
 
-        ResponseFuture(Future<ClientRequest> transportFuture, RequestResponseHandler responseHandler)
+        ResponseFuture(ActorFuture<ClientRequest> transportFuture, RequestResponseHandler responseHandler)
         {
             this.transportFuture = transportFuture;
             this.responseHandler = responseHandler;
@@ -330,6 +331,63 @@ public class RequestManager
             {
                 throw failure;
             }
+        }
+
+        @Override
+        public void complete(E value)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void completeExceptionally(String failure, Throwable throwable)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void completeExceptionally(Throwable throwable)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public E join()
+        {
+            try
+            {
+                return get();
+            }
+            catch (InterruptedException | ExecutionException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public boolean block(Runnable onCompletion)
+        {
+            return transportFuture.block(onCompletion);
+        }
+
+        @Override
+        public boolean isCompletedExceptionally()
+        {
+            if (transportFuture.isDone())
+            {
+                ensureResponseAvailable(1, TimeUnit.SECONDS);
+                return failure != null;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        @Override
+        public Throwable getException()
+        {
+            return failure;
         }
 
     }

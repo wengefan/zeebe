@@ -31,7 +31,6 @@ import io.zeebe.transport.TransportListener;
 import io.zeebe.util.actor.Actor;
 import io.zeebe.util.actor.ActorReference;
 import io.zeebe.util.actor.ActorScheduler;
-import io.zeebe.util.actor.ActorSchedulerBuilder;
 
 public class SubscriptionManager implements TransportListener, Actor
 {

@@ -16,7 +16,6 @@
 package io.zeebe.client.task.impl.subscription;
 
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.agrona.concurrent.ManyToManyConcurrentArrayQueue;
@@ -26,11 +25,6 @@ import io.zeebe.client.event.impl.GeneralEventImpl;
 import io.zeebe.client.impl.Loggers;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
-import io.zeebe.util.state.SimpleStateMachineContext;
-import io.zeebe.util.state.State;
-import io.zeebe.util.state.StateMachine;
-import io.zeebe.util.state.StateMachineAgent;
-import io.zeebe.util.state.WaitState;
 
 public abstract class EventSubscriber
 {
@@ -40,40 +34,7 @@ public abstract class EventSubscriber
     // TODO: could become configurable in the future
     protected static final double REPLENISHMENT_THRESHOLD = 0.3d;
 
-    protected static final int TRANSITION_DEFAULT = 0;
-    protected static final int TRANSITION_REOPEN = 2;
-    protected static final int TRANSITION_ABORT = 3;
-    protected static final int TRANSITION_CLOSE = 4;
-
-    protected final OpeningState openingState = new OpeningState();
-    protected final OpenState openState = new OpenState();
-    protected final ClosingState closingState = new ClosingState();
-    protected final ClosedState closedState = new ClosedState();
-
-    private final StateMachine<SimpleStateMachineContext> stateMachine = StateMachine.<SimpleStateMachineContext>builder((s) -> new SimpleStateMachineContext(s))
-        .initialState(openingState)
-
-        .from(openingState).take(TRANSITION_DEFAULT).to(openState)
-        .from(openingState).take(TRANSITION_ABORT).to(closedState)
-
-        .from(openState).take(TRANSITION_REOPEN).to(openingState)
-        .from(openState).take(TRANSITION_ABORT).to(closedState)
-        .from(openState).take(TRANSITION_CLOSE).to(closingState)
-
-        .from(closingState).take(TRANSITION_DEFAULT).to(closedState)
-        .from(closingState).take(TRANSITION_CLOSE).to(closedState)
-
-        .from(closedState).take(TRANSITION_CLOSE).to(closedState)
-
-        .build();
-
-    private StateMachineAgent<SimpleStateMachineContext> stateMachineAgent = new StateMachineAgent<>(stateMachine);
-
-    // at some points we need to know immediately that a close request has been issued (not only
-    // when the state machine asynchronously processes it)
-    protected AtomicBoolean isCloseIssued = new AtomicBoolean(false);
-
-    protected long subscriberKey;
+    protected final long subscriberKey;
     protected final ManyToManyConcurrentArrayQueue<GeneralEventImpl> pendingEvents;
     protected final int capacity;
     protected final EventAcquisition acquisition;
@@ -84,148 +45,19 @@ public abstract class EventSubscriber
     protected final AtomicInteger eventsInProcessing = new AtomicInteger(0);
     protected final AtomicInteger eventsProcessedSinceLastReplenishment = new AtomicInteger(0);
 
-    public EventSubscriber(int partitionId, int capacity, EventAcquisition acquisition)
+    private volatile int state;
+
+    private static final int STATE_OPEN = 0;
+    private static final int STATE_DISABLED = 1; // required to immediately disable a subscriber and stop processing further events
+
+    public EventSubscriber(long subscriberKey, int partitionId, int capacity, EventAcquisition acquisition)
     {
+        this.subscriberKey = subscriberKey;
         this.pendingEvents = new ManyToManyConcurrentArrayQueue<>(capacity);
         this.capacity = capacity;
         this.acquisition = acquisition;
         this.partitionId = partitionId;
-    }
-
-    public int maintainState()
-    {
-        return stateMachineAgent.doWork();
-    }
-
-    class OpeningState implements State<SimpleStateMachineContext>
-    {
-        protected Future<? extends EventSubscriptionCreationResult> subscriptionFuture;
-
-        @Override
-        public boolean isInterruptable()
-        {
-            // this must be non-interruptable or else there is a potential race conditions between
-            //   * the success response arriving
-            //   * closing the subscriber from the outside (e.g. the subscriber group is closed during creation)
-            //
-            // Then we must ensure that we send a close request in any case to the broker so that
-            // there is no lingering subscription on broker side.
-
-            return false;
-        }
-
-        @Override
-        public void onExit()
-        {
-            subscriptionFuture = null;
-        }
-
-        @Override
-        public int doWork(SimpleStateMachineContext context) throws Exception
-        {
-            if (subscriptionFuture == null)
-            {
-                LOGGER.debug(LOG_MESSAGE_PREFIX + "Opening", EventSubscriber.this);
-                subscriptionFuture = requestNewSubscription();
-
-                return 1;
-            }
-            else if (subscriptionFuture.isDone())
-            {
-                final EventSubscriptionCreationResult result;
-
-                try
-                {
-                    result = subscriptionFuture.get();
-                }
-                catch (Exception e)
-                {
-                    LOGGER.error("Subscriber {}; Could not open subscriber remotely. Aborting", EventSubscriber.this, e);
-                    context.take(TRANSITION_ABORT);
-                    return 1;
-                }
-
-                LOGGER.debug("Subscriber {} opened", EventSubscriber.this);
-
-                subscriberKey = result.getSubscriberKey();
-                partitionId = result.getPartitionId();
-                eventSource = result.getEventPublisher();
-                resetProcessingState();
-                acquisition.activateSubscriber(EventSubscriber.this);
-
-                context.take(TRANSITION_DEFAULT);
-
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-        }
-    }
-
-    class OpenState implements State<SimpleStateMachineContext>
-    {
-        @Override
-        public int doWork(SimpleStateMachineContext context) throws Exception
-        {
-            // TODO: handle errors => https://github.com/zeebe-io/zeebe/issues/591
-            final boolean replenished = replenishEventSource();
-
-            if (replenished)
-            {
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-
-            // relax and wait for external commands
-        }
-    }
-
-
-    class ClosingState implements State<SimpleStateMachineContext>
-    {
-        @Override
-        public int doWork(SimpleStateMachineContext context) throws Exception
-        {
-            if (!hasEventsInProcessing())
-            {
-                try
-                {
-                    // TODO: can become non-blocking
-                    requestSubscriptionClose();
-                }
-                catch (Exception e)
-                {
-                    LOGGER.warn(LOG_MESSAGE_PREFIX + "Exception when closing subscription", EventSubscriber.this, e);
-                }
-
-                context.take(TRANSITION_DEFAULT);
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-
-        }
-    }
-
-    class ClosedState implements WaitState<SimpleStateMachineContext>
-    {
-        @Override
-        public void onEnter(SimpleStateMachineContext context)
-        {
-            acquisition.deactivateSubscriber(EventSubscriber.this);
-        }
-
-        @Override
-        public void work(SimpleStateMachineContext context) throws Exception
-        {
-        }
+        this.state = STATE_OPEN;
     }
 
     public RemoteAddress getEventSource()
@@ -233,41 +65,14 @@ public abstract class EventSubscriber
         return eventSource;
     }
 
-    public void closeAsync()
-    {
-        isCloseIssued.set(true);
-
-        if (!isClosed())
-        {
-            stateMachineAgent.addCommand(s ->
-            {
-                s.tryTake(TRANSITION_CLOSE);
-            });
-        }
-
-    }
-
-    public void reopenAsync()
-    {
-        stateMachineAgent.addCommand(s ->
-        {
-            s.tryTake(TRANSITION_REOPEN);
-        });
-    }
-
     public boolean isOpen()
     {
-        return stateMachine.isInState(openState);
+        return state == STATE_OPEN;
     }
 
-    public boolean isOpening()
+    public boolean isDisabled()
     {
-        return stateMachine.isInState(openingState);
-    }
-
-    public boolean isClosed()
-    {
-        return stateMachine.isInState(closedState);
+        return state == STATE_DISABLED;
     }
 
     public int size()
@@ -323,6 +128,14 @@ public abstract class EventSubscriber
         return eventsInProcessing.get() > 0;
     }
 
+    /**
+     * Atomically stops this subscriber from handling any more events (aside from those currently in progress)
+     */
+    public void disable()
+    {
+        this.state = STATE_DISABLED;
+    }
+
     protected int pollEvents(CheckedConsumer<GeneralEventImpl> pollHandler)
     {
         final int currentlyAvailableEvents = size();
@@ -332,7 +145,7 @@ public abstract class EventSubscriber
 
         // handledTasks < currentlyAvailableTasks avoids very long cycles that we spend in this method
         // in case the broker continuously produces new tasks
-        while (handledEvents < currentlyAvailableEvents && isOpen() && !isCloseIssued.get())
+        while (handledEvents < currentlyAvailableEvents && isOpen())
         {
             event = pendingEvents.poll();
             if (event == null)
