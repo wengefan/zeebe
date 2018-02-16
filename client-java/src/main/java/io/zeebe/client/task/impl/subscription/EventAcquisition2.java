@@ -1,5 +1,14 @@
 package io.zeebe.client.task.impl.subscription;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.agrona.ErrorHandler;
+import org.agrona.concurrent.Agent;
+import org.agrona.concurrent.AgentRunner;
+import org.agrona.concurrent.BackoffIdleStrategy;
+import org.agrona.concurrent.IdleStrategy;
 import org.slf4j.Logger;
 
 import io.zeebe.client.event.EventMetadata;
@@ -26,10 +35,16 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
     private final EventSubscribers taskSubscribers = new EventSubscribers();
     private final EventSubscribers topicSubscribers = new EventSubscribers();
 
+    final IdleStrategy idleStrategy = new BackoffIdleStrategy(1000, 100, 1, TimeUnit.MILLISECONDS.toNanos(1));
+    final ErrorHandler errorHandler = Throwable::printStackTrace;
+
+    private final List<AgentRunner> agentRunners = new ArrayList<>();
+
     public EventAcquisition2(ZeebeClientImpl client)
     {
         this.client = client;
     }
+
 
     @Override
     protected void onActorStarted()
@@ -44,12 +59,42 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
                 this.messageSubscription = s;
                 actor.consume(s, this::pollInput);
             });
+
+        startSubscriptionExecution(client.getNumExecutionThreads());
+    }
+
+    private void startSubscriptionExecution(int numThreads)
+    {
+        for (int i = 0; i < numThreads; i++)
+        {
+            final SubscriptionExecutor executor = new SubscriptionExecutor(topicSubscribers);
+            final AgentRunner agentRunner = initAgentRunner(executor);
+            AgentRunner.startOnThread(agentRunner);
+
+            agentRunners.add(agentRunner);
+        }
+    }
+
+    private void stopSubscriptionExecution()
+    {
+        for (AgentRunner runner: agentRunners)
+        {
+            runner.close();
+        }
+    }
+
+    private AgentRunner initAgentRunner(Agent agent)
+    {
+        return new AgentRunner(idleStrategy, errorHandler, null, agent);
     }
 
     @Override
     protected void onActorClosing()
     {
         closeAllSubscribers();
+
+        // TODO: das hier blockiert jetzt im Kontext des ActorSchedulers; könnte aber ok sein (oder sonst als pollBlocking abgeben)
+        stopSubscriptionExecution();
     }
 
     public ActorFuture<EventSubscriberGroup2> openTopicSubscription(TopicSubscriptionSpec spec)
@@ -58,6 +103,7 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
         actor.call(() ->
         {
             final EventSubscriberGroup2 group = new TopicSubscriberGroup(actor, client, this, spec);
+            topicSubscribers.addGroup(group);
             group.open(future);
         });
 

@@ -89,6 +89,8 @@ public class ZeebeClientImpl implements ZeebeClient
 
     private final int subscriptionPrefetchCapacity;
 
+    private final int numExecutionThreads;
+
     public ZeebeClientImpl(final Properties properties)
     {
         LOG.info("Version: {}", VERSION);
@@ -149,8 +151,7 @@ public class ZeebeClientImpl implements ZeebeClient
         this.msgPackMapper = new MsgPackMapper(objectMapper);
 
 
-        final int numExecutionThreads = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TASK_EXECUTION_THREADS));
-
+        numExecutionThreads = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TASK_EXECUTION_THREADS));
         subscriptionPrefetchCapacity = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TOPIC_SUBSCRIPTION_PREFETCH_CAPACITY));
 
         final Duration requestTimeout = Duration.ofSeconds(Long.parseLong(properties.getProperty(CLIENT_REQUEST_TIMEOUT_SEC)));
@@ -302,5 +303,10 @@ public class ZeebeClientImpl implements ZeebeClient
     public int getSubscriptionPrefetchCapacity()
     {
         return subscriptionPrefetchCapacity;
+    }
+
+    public int getNumExecutionThreads()
+    {
+        return numExecutionThreads;
     }
 }

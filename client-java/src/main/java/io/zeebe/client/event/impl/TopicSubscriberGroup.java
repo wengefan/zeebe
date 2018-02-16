@@ -90,18 +90,6 @@ public class TopicSubscriberGroup extends EventSubscriberGroup2 //<TopicSubscrib
     }
 
     @Override
-    public boolean isOpen()
-    {
-        throw new RuntimeException("implement this in super class");
-    }
-
-    @Override
-    public boolean isClosed()
-    {
-        throw new RuntimeException("implement this in super class");
-    }
-
-    @Override
     protected ActorFuture<? extends EventSubscriptionCreationResult> requestNewSubscriber(int partitionId)
     {
         return client.topics().createTopicSubscription(subscription.getTopic(), partitionId)

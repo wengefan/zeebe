@@ -17,6 +17,7 @@ package io.zeebe.client.event;
 
 import static io.zeebe.test.util.TestUtil.waitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 import java.time.Duration;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.RuleChain;
+import org.junit.rules.Timeout;
 
 import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.event.impl.TopicSubscriber;
@@ -53,8 +55,8 @@ import io.zeebe.test.broker.protocol.brokerapi.StubBrokerRule;
 import io.zeebe.test.util.Conditions;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.transport.RemoteAddress;
+import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.time.ClockUtil;
-import org.junit.rules.Timeout;
 
 public class TopicSubscriptionTest
 {
@@ -430,7 +432,7 @@ public class TopicSubscriptionTest
         TestUtil.waitUntil(() -> handler.isWaiting());
 
         // when
-        final CompletableFuture<?> closeFuture = subscription.closeAsync();
+        final ActorFuture<?> closeFuture = subscription.closeAsync();
 
         // then
         Thread.sleep(1000L);
@@ -883,6 +885,10 @@ public class TopicSubscriptionTest
     @Test
     public void shouldCloseSubscriptionWhileOpeningSubscriber()
     {
+        fail("Den hier muss man umschreiben => "
+                + "es soll nicht möglich sein den Client/EventAcquisition zu schließen und gleichzeitig einen Subscriber zu öffnen, sodass"
+                + "am Ende Subscriber offen bleiben");
+
         // given
         final int subscriberKey = 123;
 
@@ -900,10 +906,11 @@ public class TopicSubscriptionTest
             .handler(DO_NOTHING)
             .name("foo");
 
-        final TopicSubscriberGroup subscriberGroup = builder
+        final Future<TopicSubscriberGroup subscriberGroup = builder
             .buildSubscriberGroup();
 
         subscriberGroup.openAsync();
+
         waitUntil(() ->
             broker.getReceivedCommandRequests().stream()
                 .filter(r -> r.eventType() == EventType.SUBSCRIBER_EVENT && "SUBSCRIBE".equals(r.getCommand().get("state")))

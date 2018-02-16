@@ -34,6 +34,12 @@ public abstract class EventSubscriberGroup2
 
     protected CompletableActorFuture<EventSubscriberGroup2> openFuture;
 
+    private volatile int state = STATE_OPENING;
+
+    private static final int STATE_OPENING = 0;
+    private static final int STATE_OPEN = 1;
+    private static final int STATE_CLOSED = 2;
+
     public EventSubscriberGroup2(
             ActorControl actor,
             ZeebeClientImpl client,
@@ -97,6 +103,7 @@ public abstract class EventSubscriberGroup2
                     if (subscribers.isEmpty())
                     {
                         closeFuture.complete(null);
+                        state = STATE_CLOSED;
                     }
                 });
             });
@@ -157,7 +164,9 @@ public abstract class EventSubscriberGroup2
 
                 if (openFuture != null && hasSubscriberForEveryPartition())
                 {
+                    // TODO: this is fragile when subscribers are closing intermediately
                     openFuture.complete(this);
+                    state = STATE_OPEN;
                 }
             }
             else
@@ -196,6 +205,16 @@ public abstract class EventSubscriberGroup2
         }
 
         return events;
+    }
+
+    public boolean isOpen()
+    {
+        return state == STATE_OPEN;
+    }
+
+    public boolean isClosed()
+    {
+        return state == STATE_CLOSED;
     }
 
     public abstract int poll();

@@ -15,9 +15,9 @@
  */
 package io.zeebe.client.task.impl.subscription;
 
-import io.zeebe.util.actor.Actor;
+import org.agrona.concurrent.Agent;
 
-public class SubscriptionExecutor implements Actor
+public class SubscriptionExecutor implements Agent
 {
     public static final String ROLE_NAME = "subscription-executor";
 
@@ -35,7 +35,7 @@ public class SubscriptionExecutor implements Actor
     }
 
     @Override
-    public String name()
+    public String roleName()
     {
         return ROLE_NAME;
     }
