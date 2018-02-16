@@ -15,7 +15,6 @@
  */
 package io.zeebe.client.task.impl.subscription;
 
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.agrona.concurrent.ManyToManyConcurrentArrayQueue;
@@ -25,6 +24,7 @@ import io.zeebe.client.event.impl.GeneralEventImpl;
 import io.zeebe.client.impl.Loggers;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
+import io.zeebe.util.sched.future.ActorFuture;
 
 public abstract class EventSubscriber
 {
@@ -37,7 +37,8 @@ public abstract class EventSubscriber
     protected final long subscriberKey;
     protected final ManyToManyConcurrentArrayQueue<GeneralEventImpl> pendingEvents;
     protected final int capacity;
-    protected final EventAcquisition acquisition;
+    protected final EventAcquisition2 acquisition;
+    protected final EventSubscriberGroup2 group;
 
     protected RemoteAddress eventSource;
     protected int partitionId;
@@ -50,11 +51,14 @@ public abstract class EventSubscriber
     private static final int STATE_OPEN = 0;
     private static final int STATE_DISABLED = 1; // required to immediately disable a subscriber and stop processing further events
 
-    public EventSubscriber(long subscriberKey, int partitionId, int capacity, EventAcquisition acquisition)
+    public EventSubscriber(long subscriberKey, int partitionId, int capacity,
+            EventSubscriberGroup2 group,
+            EventAcquisition2 acquisition)
     {
         this.subscriberKey = subscriberKey;
         this.pendingEvents = new ManyToManyConcurrentArrayQueue<>(capacity);
         this.capacity = capacity;
+        this.group = group;
         this.acquisition = acquisition;
         this.partitionId = partitionId;
         this.state = STATE_OPEN;
@@ -212,6 +216,5 @@ public abstract class EventSubscriber
         return partitionId;
     }
 
-    protected abstract Future<? extends EventSubscriptionCreationResult> requestNewSubscription();
-    protected abstract void requestSubscriptionClose();
+    protected abstract ActorFuture<Void> requestSubscriptionClose();
 }

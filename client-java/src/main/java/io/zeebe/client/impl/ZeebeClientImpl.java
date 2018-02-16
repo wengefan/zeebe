@@ -42,7 +42,8 @@ import io.zeebe.client.clustering.impl.TopologyResponse;
 import io.zeebe.client.cmd.Request;
 import io.zeebe.client.event.impl.TopicClientImpl;
 import io.zeebe.client.impl.data.MsgPackConverter;
-import io.zeebe.client.task.impl.subscription.SubscriptionManager;
+import io.zeebe.client.impl.data.MsgPackMapper;
+import io.zeebe.client.task.impl.subscription.EventAcquisition2;
 import io.zeebe.dispatcher.Dispatcher;
 import io.zeebe.dispatcher.Dispatchers;
 import io.zeebe.transport.ClientTransport;
@@ -73,9 +74,9 @@ public class ZeebeClientImpl implements ZeebeClient
 
     protected ClientTransport transport;
 
-    protected final ObjectMapper objectMapper;
+    protected final MsgPackMapper msgPackMapper;
 
-    protected SubscriptionManager subscriptionManager;
+//    protected SubscriptionManager subscriptionManager;
 
     protected final ClientTopologyManager topologyManager;
     protected final RequestManager apiCommandManager;
@@ -83,6 +84,10 @@ public class ZeebeClientImpl implements ZeebeClient
     protected final MsgPackConverter msgPackConverter;
 
     protected boolean isClosed;
+
+    protected EventAcquisition2 eventAcquisition;
+
+    private final int subscriptionPrefetchCapacity;
 
     public ZeebeClientImpl(final Properties properties)
     {
@@ -133,7 +138,7 @@ public class ZeebeClientImpl implements ZeebeClient
         final MessagePackFactory messagePackFactory = new MessagePackFactory()
                 .setReuseResourceInGenerator(false)
                 .setReuseResourceInParser(false);
-        objectMapper = new ObjectMapper(messagePackFactory);
+        final ObjectMapper objectMapper = new ObjectMapper(messagePackFactory);
         objectMapper.setSerializationInclusion(Include.NON_NULL);
         objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
@@ -141,10 +146,12 @@ public class ZeebeClientImpl implements ZeebeClient
                 .addValue(MsgPackConverter.class, msgPackConverter);
         objectMapper.setInjectableValues(injectionContext);
 
+        this.msgPackMapper = new MsgPackMapper(objectMapper);
+
 
         final int numExecutionThreads = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TASK_EXECUTION_THREADS));
 
-        final int prefetchCapacity = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TOPIC_SUBSCRIPTION_PREFETCH_CAPACITY));
+        subscriptionPrefetchCapacity = Integer.parseInt(properties.getProperty(ClientProperties.CLIENT_TOPIC_SUBSCRIPTION_PREFETCH_CAPACITY));
 
         final Duration requestTimeout = Duration.ofSeconds(Long.parseLong(properties.getProperty(CLIENT_REQUEST_TIMEOUT_SEC)));
 
@@ -165,6 +172,12 @@ public class ZeebeClientImpl implements ZeebeClient
                 objectMapper,
                 requestTimeout);
 
+        this.eventAcquisition = new EventAcquisition2(this);
+        this.scheduler.submitActor(eventAcquisition);
+
+        // TODO: implement reopen-Feature
+//        transport.registerChannelListener(eventAcquisition);
+
 //        subscriptionManager.start();
     }
 
@@ -182,6 +195,8 @@ public class ZeebeClientImpl implements ZeebeClient
 //        subscriptionManager.stop();
 
 //        subscriptionManager.close();
+
+        eventAcquisition.close().join();
 
         try
         {
@@ -254,14 +269,9 @@ public class ZeebeClientImpl implements ZeebeClient
         return topologyManager;
     }
 
-    public SubscriptionManager getSubscriptionManager()
+    public MsgPackMapper getMsgPackMapper()
     {
-        return subscriptionManager;
-    }
-
-    public ObjectMapper getObjectMapper()
-    {
-        return objectMapper;
+        return msgPackMapper;
     }
 
     public Properties getInitializationProperties()
@@ -282,5 +292,15 @@ public class ZeebeClientImpl implements ZeebeClient
     public ZbActorScheduler getScheduler()
     {
         return scheduler;
+    }
+
+    public EventAcquisition2 getEventAcquisition()
+    {
+        return eventAcquisition;
+    }
+
+    public int getSubscriptionPrefetchCapacity()
+    {
+        return subscriptionPrefetchCapacity;
     }
 }

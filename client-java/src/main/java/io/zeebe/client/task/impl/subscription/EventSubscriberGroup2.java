@@ -3,16 +3,18 @@ package io.zeebe.client.task.impl.subscription;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.agrona.collections.IntArrayList;
-import org.agrona.collections.Long2ObjectHashMap;
 
 import io.zeebe.client.cmd.ClientException;
+import io.zeebe.client.event.impl.GeneralEventImpl;
 import io.zeebe.client.impl.ZeebeClientImpl;
 import io.zeebe.client.topic.Partition;
 import io.zeebe.client.topic.Topic;
 import io.zeebe.client.topic.Topics;
 import io.zeebe.transport.RemoteAddress;
+import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
@@ -22,7 +24,7 @@ public abstract class EventSubscriberGroup2
 
     protected final ActorControl actor;
 
-    protected final Long2ObjectHashMap<EventSubscriber> subscribers = new Long2ObjectHashMap<>();
+    protected final List<EventSubscriber> subscribers = new CopyOnWriteArrayList<>();
     protected final ZeebeClientImpl client;
 
     protected final String topic;
@@ -71,21 +73,21 @@ public abstract class EventSubscriberGroup2
             else
             {
                 // TODO: close wiht reason Topic %s is not known
+                // TODO: closing exception should also contain the description of the group (=> see EventSubscriberGroup#describeGroupSpec)
             }
         });
     }
 
-    public CompletableActorFuture<EventSubscriberGroup2> closeAsync()
+    public CompletableActorFuture<Void> closeAsync()
     {
-        final CompletableActorFuture<EventSubscriberGroup2> closeFuture = new CompletableActorFuture<>();
+        final CompletableActorFuture<Void> closeFuture = new CompletableActorFuture<>();
 
         // TODO: das ist nicht so toll; diese Klasse sollte selbst nicht actor.call aufrufen
         actor.call(() ->
         {
-            subscribers.values().forEach(subscriber ->
+            subscribers.forEach(subscriber ->
             {
-                final ActorFuture<Void> closeSubscriberFuture =
-                        requestCloseSubscriber(subscriber.getPartitionId(), subscriber.getSubscriberKey());
+                final ActorFuture<Void> closeSubscriberFuture = subscriber.requestSubscriptionClose();
 
                 actor.runOnCompletion(closeSubscriberFuture, (v, t) ->
                 {
@@ -94,7 +96,7 @@ public abstract class EventSubscriberGroup2
 
                     if (subscribers.isEmpty())
                     {
-                        closeFuture.complete(this);
+                        closeFuture.complete(null);
                     }
                 });
             });
@@ -106,7 +108,7 @@ public abstract class EventSubscriberGroup2
 
     public void reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
     {
-        final Iterator<EventSubscriber> it = subscribers.values().iterator();
+        final Iterator<EventSubscriber> it = subscribers.iterator();
 
         while (it.hasNext())
         {
@@ -145,7 +147,7 @@ public abstract class EventSubscriberGroup2
 
     private void openSubscriber(int partitionId)
     {
-        final ActorFuture<EventSubscriptionCreationResult> future = requestNewSubscriber(partitionId);
+        final ActorFuture<? extends EventSubscriptionCreationResult> future = requestNewSubscriber(partitionId);
         // TODO: must deal with the case when the #close-Command is received intermittently
         actor.runOnCompletion(future, (result, throwable) ->
         {
@@ -173,7 +175,7 @@ public abstract class EventSubscriberGroup2
     protected void onSubscriberOpened(EventSubscriptionCreationResult creationResult)
     {
         final EventSubscriber subscriber = buildSubscriber(creationResult);
-        subscribers.put(subscriber.getSubscriberKey(), subscriber);
+        subscribers.add(subscriber);
         acquisition.addSubscriber(subscriber);
     }
 
@@ -182,14 +184,26 @@ public abstract class EventSubscriberGroup2
     protected void onSubscriberClosed(EventSubscriber subscriber)
     {
         acquisition.removeSubscriber(subscriber);
-        subscribers.remove(subscriber.getSubscriberKey());
+        subscribers.remove(subscriber);
     }
 
-    protected abstract ActorFuture<EventSubscriptionCreationResult> requestNewSubscriber(int partitionId);
+    public int pollEvents(CheckedConsumer<GeneralEventImpl> pollHandler)
+    {
+        int events = 0;
+        for (EventSubscriber subscriber : subscribers)
+        {
+            events += subscriber.pollEvents(pollHandler);
+        }
 
-    protected abstract ActorFuture<Void> requestCloseSubscriber(int partitionId, long subscriberKey);
+        return events;
+    }
+
+    public abstract int poll();
+
+    protected abstract ActorFuture<? extends EventSubscriptionCreationResult> requestNewSubscriber(int partitionId);
 
     protected abstract EventSubscriber buildSubscriber(EventSubscriptionCreationResult result);
 
     public abstract boolean isManagedGroup();
+
 }

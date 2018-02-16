@@ -15,14 +15,14 @@
  */
 package io.zeebe.client.event.impl;
 
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
-import io.zeebe.client.task.impl.subscription.EventAcquisition;
+import io.zeebe.client.task.impl.subscription.EventAcquisition2;
 import io.zeebe.client.task.impl.subscription.EventSubscriber;
-import io.zeebe.client.task.impl.subscription.EventSubscriptionCreationResult;
+import io.zeebe.client.task.impl.subscription.EventSubscriberGroup2;
 import io.zeebe.util.CheckedConsumer;
+import io.zeebe.util.sched.future.ActorFuture;
 
 public class TopicSubscriber extends EventSubscriber
 {
@@ -42,10 +42,12 @@ public class TopicSubscriber extends EventSubscriber
     public TopicSubscriber(
             TopicClientImpl client,
             TopicSubscriptionSpec subscription,
+            long subscriberKey,
             int partitionId,
-            EventAcquisition acquisition)
+            EventSubscriberGroup2 group,
+            EventAcquisition2 acquisition)
     {
-        super(partitionId, subscription.getPrefetchCapacity(), acquisition);
+        super(subscriberKey, partitionId, subscription.getPrefetchCapacity(), group, acquisition);
         this.subscription = subscription;
         this.client = client;
         this.lastProcessedEventPosition = subscription.getStartPosition(partitionId);
@@ -75,7 +77,9 @@ public class TopicSubscriber extends EventSubscriber
     protected void logExceptionAndClose(GeneralEventImpl event, Exception e)
     {
         logEventHandlingError(e, event, "Closing subscription.");
-        this.closeAsync();
+        disable();
+
+        acquisition.closeGroup(group);
     }
 
     protected void logExceptionAndPropagate(GeneralEventImpl event, Exception e)
@@ -90,22 +94,12 @@ public class TopicSubscriber extends EventSubscriber
     }
 
     @Override
-    protected Future<? extends EventSubscriptionCreationResult> requestNewSubscription()
+    protected ActorFuture<Void> requestSubscriptionClose()
     {
-        return client.createTopicSubscription(subscription.getTopic(), partitionId)
-                .startPosition(subscription.getStartPosition(partitionId))
-                .prefetchCapacity(subscription.getPrefetchCapacity())
-                .name(subscription.getName())
-                .forceStart(subscription.isForceStart())
-                .executeAsync();
-    }
-
-    @Override
-    protected void requestSubscriptionClose()
-    {
+        // TODO: das hier muss woanders hin bzw. mit dem Future komponiert werden
         acknowledgeLastProcessedEvent();
 
-        client.closeTopicSubscription(partitionId, subscriberKey).execute();
+        return client.closeTopicSubscription(partitionId, subscriberKey).executeAsync();
     }
 
     @Override

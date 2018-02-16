@@ -25,7 +25,6 @@ import org.agrona.collections.Long2ObjectHashMap;
 import org.slf4j.Logger;
 
 import io.zeebe.client.impl.Loggers;
-import io.zeebe.transport.RemoteAddress;
 
 @SuppressWarnings("rawtypes")
 public class EventSubscribers
@@ -85,18 +84,18 @@ public class EventSubscribers
         }
     }
 
-    public void reopenSubscribersForRemote(RemoteAddress remoteAddress)
-    {
-        forAllDoConsume(managedSubscriberGroups, s ->
-        {
-            s.reopenSubscribersForRemote(remoteAddress);
-        });
-
-        forAllDoConsume(pollableSubscriberGroups, s ->
-        {
-            s.reopenSubscribersForRemote(remoteAddress);
-        });
-    }
+//    public void reopenSubscribersForRemote(RemoteAddress remoteAddress)
+//    {
+//        forAllDoConsume(managedSubscriberGroups, s ->
+//        {
+//            s.reopenSubscribersForRemote(remoteAddress);
+//        });
+//
+//        forAllDoConsume(pollableSubscriberGroups, s ->
+//        {
+//            s.reopenSubscribersForRemote(remoteAddress);
+//        });
+//    }
 
     public void add(EventSubscriber subscriber)
     {

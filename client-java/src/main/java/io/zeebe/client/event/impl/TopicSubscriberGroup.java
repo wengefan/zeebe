@@ -17,15 +17,19 @@ package io.zeebe.client.event.impl;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.event.PollableTopicSubscription;
 import io.zeebe.client.event.TopicSubscription;
 import io.zeebe.client.event.UniversalEventHandler;
-import io.zeebe.client.task.impl.subscription.EventAcquisition;
-import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
+import io.zeebe.client.impl.ZeebeClientImpl;
+import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.EventSubscriber;
+import io.zeebe.client.task.impl.subscription.EventSubscriberGroup2;
+import io.zeebe.client.task.impl.subscription.EventSubscriptionCreationResult;
 import io.zeebe.util.CheckedConsumer;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 
-public class TopicSubscriberGroup extends EventSubscriberGroup<TopicSubscriber>
+public class TopicSubscriberGroup extends EventSubscriberGroup2 //<TopicSubscriber>
     implements TopicSubscription, PollableTopicSubscription
 {
 
@@ -35,11 +39,12 @@ public class TopicSubscriberGroup extends EventSubscriberGroup<TopicSubscriber>
     protected final TopicSubscriptionSpec subscription;
 
     public TopicSubscriberGroup(
-            ZeebeClient client,
-            EventAcquisition acquisition,
+            ActorControl actor,
+            ZeebeClientImpl client,
+            EventAcquisition2 acquisition,
             TopicSubscriptionSpec subscription)
     {
-        super(acquisition, client, subscription.getTopic());
+        super(actor, client, acquisition, subscription.getTopic());
         this.subscription = subscription;
     }
 
@@ -85,14 +90,31 @@ public class TopicSubscriberGroup extends EventSubscriberGroup<TopicSubscriber>
     }
 
     @Override
-    protected TopicSubscriber buildSubscriber(int partition)
+    public boolean isOpen()
     {
-        return new TopicSubscriber((TopicClientImpl) client.topics(), subscription, partition, acquisition);
+        throw new RuntimeException("implement this in super class");
     }
 
     @Override
-    protected String describeGroupSpec()
+    public boolean isClosed()
     {
-        return subscription.toString();
+        throw new RuntimeException("implement this in super class");
+    }
+
+    @Override
+    protected ActorFuture<? extends EventSubscriptionCreationResult> requestNewSubscriber(int partitionId)
+    {
+        return client.topics().createTopicSubscription(subscription.getTopic(), partitionId)
+            .startPosition(subscription.getStartPosition(partitionId))
+            .prefetchCapacity(subscription.getPrefetchCapacity())
+            .name(subscription.getName())
+            .forceStart(subscription.isForceStart())
+            .executeAsync();
+    }
+
+    @Override
+    protected EventSubscriber buildSubscriber(EventSubscriptionCreationResult result)
+    {
+        return new TopicSubscriber(client.topics(), subscription, result.getSubscriberKey(), result.getPartitionId(), this, acquisition);
     }
 }

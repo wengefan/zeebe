@@ -1,15 +1,13 @@
 package io.zeebe.client.task.impl.subscription;
 
-import java.util.List;
-
 import org.slf4j.Logger;
 
 import io.zeebe.client.event.EventMetadata;
 import io.zeebe.client.event.impl.GeneralEventImpl;
+import io.zeebe.client.event.impl.TopicSubscriberGroup;
 import io.zeebe.client.event.impl.TopicSubscriptionSpec;
 import io.zeebe.client.impl.Loggers;
 import io.zeebe.client.impl.ZeebeClientImpl;
-import io.zeebe.client.topic.Partition;
 import io.zeebe.protocol.clientapi.SubscriptionType;
 import io.zeebe.transport.ClientInputMessageSubscription;
 import io.zeebe.transport.RemoteAddress;
@@ -17,6 +15,7 @@ import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 
+// TODO: consider renaming to subscriptionmanager
 public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
 {
     protected static final Logger LOGGER = Loggers.SUBSCRIPTION_LOGGER;
@@ -47,12 +46,18 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
             });
     }
 
+    @Override
+    protected void onActorClosing()
+    {
+        closeAllSubscribers();
+    }
+
     public ActorFuture<EventSubscriberGroup2> openTopicSubscription(TopicSubscriptionSpec spec)
     {
-        CompletableActorFuture<EventSubscriberGroup2> future = new CompletableActorFuture<>();
+        final CompletableActorFuture<EventSubscriberGroup2> future = new CompletableActorFuture<>();
         actor.call(() ->
         {
-            EventSubscriberGroup2 group = null; // TODO: instantiate actual group here
+            final EventSubscriberGroup2 group = new TopicSubscriberGroup(actor, client, this, spec);
             group.open(future);
         });
 
@@ -77,6 +82,8 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
         topicSubscribers.remove(subscriber);
     }
 
+
+
     public void closeAllSubscribers()
     {
         topicSubscribers.closeAllGroups();
@@ -84,12 +91,18 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
 
     public ActorFuture<Void> reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
     {
-        actor.call(() ->
-        {
+        throw new RuntimeException("not yet implemented");
+//        actor.call(() ->
+//        {
+//
+//        });
 
-        });
+//        asyncContext.runAsync(() -> subscribers.reopenSubscribersForRemote(remoteAddress));
+    }
 
-        asyncContext.runAsync(() -> subscribers.reopenSubscribersForRemote(remoteAddress));
+    public ActorFuture<Void> closeGroup(EventSubscriberGroup2 group)
+    {
+        return group.closeAsync();
     }
 
     @Override
@@ -118,6 +131,7 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
 //            }
         }
 
+
         if (subscriber != null && subscriber.isOpen())
         {
             event.setTopicName(subscriber.getTopicName());
@@ -128,6 +142,11 @@ public class EventAcquisition2 extends ZbActor implements SubscribedEventHandler
             LOGGER.debug("Event Acquisition: Ignoring event " + event.toString() + " for subscription " + subscriberKey);
             return true; // ignoring the event is success; don't want to retry it later
         }
+    }
+
+    public ActorFuture<Void> close()
+    {
+        return actor.close();
     }
 
 }
