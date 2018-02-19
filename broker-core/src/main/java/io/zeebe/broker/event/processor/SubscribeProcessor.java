@@ -22,6 +22,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 import io.zeebe.protocol.Protocol;
+import io.zeebe.util.actor.Actor;
+import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 
 import io.zeebe.protocol.impl.BrokerEventMetadata;
@@ -136,7 +138,7 @@ public class SubscribeProcessor implements EventProcessor
                     subscriberEvent.getStartPosition(),
                     subscriberEvent.getForceStart());
 
-            final CompletableFuture<TopicSubscriptionPushProcessor> processorFuture = manager.openPushProcessorAsync(
+            final ActorFuture<TopicSubscriptionPushProcessor> processorFuture = manager.openPushProcessorAsync(
                     metadata.getRequestStreamId(),
                     event.getKey(),
                     resumePosition,
@@ -152,9 +154,9 @@ public class SubscribeProcessor implements EventProcessor
 
     protected class AwaitSubscriptionServiceProcessor implements EventProcessor
     {
-        protected CompletableFuture<TopicSubscriptionPushProcessor> processorFuture;
+        protected ActorFuture<TopicSubscriptionPushProcessor> processorFuture;
 
-        public void wrap(CompletableFuture<TopicSubscriptionPushProcessor> processorFuture)
+        public void wrap(ActorFuture<TopicSubscriptionPushProcessor> processorFuture)
         {
             this.processorFuture = processorFuture;
         }

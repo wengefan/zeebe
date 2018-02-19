@@ -35,12 +35,13 @@ import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.ServerOutput;
 import io.zeebe.transport.ServerTransport;
 import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActorScheduler;
 
 public class ControlMessageHandlerManagerService implements Service<ControlMessageHandlerManager>
 {
     protected final Injector<ServerTransport> transportInjector = new Injector<>();
     protected final Injector<Dispatcher> controlMessageBufferInjector = new Injector<>();
-    protected final Injector<ActorScheduler> actorSchedulerInjector = new Injector<>();
+    protected final Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     protected final Injector<TaskSubscriptionManager> taskSubscriptionManagerInjector = new Injector<>();
     protected final Injector<TopicSubscriptionService> topicSubscriptionServiceInjector = new Injector<>();
     protected final Injector<SystemPartitionManager> systemPartitionManagerInjector = new Injector<>();
@@ -61,7 +62,7 @@ public class ControlMessageHandlerManagerService implements Service<ControlMessa
         final Dispatcher controlMessageBuffer = controlMessageBufferInjector.getValue();
 
         final ServerTransport transport = transportInjector.getValue();
-        final ActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+        final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
 
         final TaskSubscriptionManager taskSubscriptionManager = taskSubscriptionManagerInjector.getValue();
         final TopicSubscriptionService topicSubscriptionService = topicSubscriptionServiceInjector.getValue();
@@ -110,7 +111,7 @@ public class ControlMessageHandlerManagerService implements Service<ControlMessa
         return controlMessageBufferInjector;
     }
 
-    public Injector<ActorScheduler> getActorSchedulerInjector()
+    public Injector<ZbActorScheduler> getActorSchedulerInjector()
     {
         return actorSchedulerInjector;
     }

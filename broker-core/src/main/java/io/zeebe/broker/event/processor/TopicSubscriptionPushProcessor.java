@@ -17,10 +17,6 @@
  */
 package io.zeebe.broker.event.processor;
 
-import static io.zeebe.util.buffer.BufferUtil.cloneBuffer;
-
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import io.zeebe.broker.logstreams.processor.MetadataFilter;
 import io.zeebe.broker.logstreams.processor.NoopSnapshotSupport;
 import io.zeebe.broker.transport.clientapi.SubscribedEventWriter;
@@ -36,6 +32,10 @@ import io.zeebe.protocol.clientapi.SubscriptionType;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.util.collection.LongRingBuffer;
 import org.agrona.DirectBuffer;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static io.zeebe.util.buffer.BufferUtil.cloneBuffer;
 
 public class TopicSubscriptionPushProcessor implements StreamProcessor, EventProcessor
 {

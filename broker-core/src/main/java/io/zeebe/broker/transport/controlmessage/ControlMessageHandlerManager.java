@@ -25,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.zeebe.util.sched.ZbActorScheduler;
 import org.agrona.DirectBuffer;
 import org.agrona.collections.Int2ObjectHashMap;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -107,7 +108,7 @@ public class ControlMessageHandlerManager implements Actor
             ServerOutput output,
             Dispatcher controlMessageDispatcher,
             long requestTimeoutInMillis,
-            ActorScheduler actorScheduler,
+            ZbActorScheduler actorScheduler,
             List<ControlMessageHandler> handlers)
     {
         this.actorScheduler = actorScheduler;

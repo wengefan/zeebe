@@ -48,6 +48,9 @@ import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.util.DeferredCommandContext;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 
 public class TopicSubscriptionManagementProcessor implements StreamProcessor
@@ -69,7 +72,7 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
     protected final ServiceStartContext serviceContext;
     protected final Bytes2LongZbMap ackMap;
 
-    protected DeferredCommandContext cmdContext;
+    private ActorControl actor;
 
     protected final AckProcessor ackProcessor = new AckProcessor();
     protected final SubscribeProcessor subscribeProcessor = new SubscribeProcessor(MAXIMUM_SUBSCRIPTION_NAME_LENGTH, this);
@@ -96,10 +99,11 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
         this.snapshotResource = new ZbMapSnapshotSupport<>(ackMap);
     }
 
+
     @Override
     public void onOpen(StreamProcessorContext context)
     {
-        this.cmdContext = context.getStreamProcessorCmdQueue();
+        this.actor = context.getActorControl();
 
         final LogStream logStream = context.getLogStream();
         this.logStreamPartitionId = logStream.getPartitionId();
@@ -188,7 +192,8 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
 
     public CompletableFuture<Void> closePushProcessorAsync(long subscriberKey)
     {
-        return cmdContext.runAsync((future) ->
+        final CompletableFuture<Void> future = new CompletableFuture<>();
+        actor.call(() ->
         {
             final TopicSubscriptionPushProcessor processor = subscriptionRegistry.removeProcessorByKey(subscriberKey);
 
@@ -202,6 +207,7 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
                 future.complete(null);
             }
         });
+        return future;
     }
 
     protected CompletableFuture<Void> closePushProcessor(TopicSubscriptionPushProcessor processor)
@@ -234,14 +240,19 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
         }
     }
 
-    public CompletableFuture<TopicSubscriptionPushProcessor> openPushProcessorAsync(
+    public ActorFuture<TopicSubscriptionPushProcessor> openPushProcessorAsync(
             int clientChannelId,
             long subscriberKey,
             long resumePosition,
             DirectBuffer subscriptionName,
             int prefetchCapacity)
     {
-        final TopicSubscriptionPushProcessor processor = new TopicSubscriptionPushProcessor(
+
+        CompletableActorFuture<TopicSubscriptionPushProcessor> future = new CompletableActorFuture<>();
+        actor.call(() ->
+        {
+
+            final TopicSubscriptionPushProcessor processor = new TopicSubscriptionPushProcessor(
                 clientChannelId,
                 subscriberKey,
                 resumePosition,
@@ -249,21 +260,27 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
                 prefetchCapacity,
                 eventWriterFactory.get());
 
-        final ServiceName<StreamProcessorController> serviceName = TopicSubscriptionServiceNames.subscriptionPushServiceName(streamServiceName.getName(), processor.getNameAsString());
+            final ServiceName<StreamProcessorController> serviceName = TopicSubscriptionServiceNames.subscriptionPushServiceName(streamServiceName.getName(), processor.getNameAsString());
 
-        final StreamProcessorService streamProcessorService = new StreamProcessorService(
+            final StreamProcessorService streamProcessorService = new StreamProcessorService(
                 serviceName.getName(),
                 StreamProcessorIds.TOPIC_SUBSCRIPTION_PUSH_PROCESSOR_ID,
                 processor)
-            .eventFilter(TopicSubscriptionPushProcessor.eventFilter())
-            .readOnly(true);
+                .eventFilter(TopicSubscriptionPushProcessor.eventFilter())
+                .readOnly(true);
 
-        return serviceContext.createService(serviceName, streamProcessorService)
-            .dependency(streamServiceName, streamProcessorService.getLogStreamInjector())
-            .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
-            .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
-            .install()
-            .thenApply((v) -> processor);
+            final ActorFuture<Void> installFuture = serviceContext.createService(serviceName, streamProcessorService)
+                .dependency(streamServiceName, streamProcessorService.getLogStreamInjector())
+                .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
+                .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
+                .install();
+
+            actor.runOnCompletion(installFuture, (aVoid, throwable) ->
+            {
+                future.complete(processor);
+            });
+        });
+        return future;
     }
 
     public boolean writeRequestResponseError(BrokerEventMetadata metadata, LoggedEvent event, String error)
@@ -282,7 +299,7 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
 
     public void onClientChannelCloseAsync(int channelId)
     {
-        cmdContext.runAsync(() ->
+        actor.call(() ->
         {
             final Iterator<TopicSubscriptionPushProcessor> subscriptionsIt = subscriptionRegistry.iterateSubscriptions();
 
