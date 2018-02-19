@@ -17,305 +17,119 @@
  */
 package io.zeebe.broker.clustering.management;
 
-import static io.zeebe.broker.clustering.ClusterServiceNames.CLUSTER_MANAGER_SERVICE;
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-
-import java.util.concurrent.CompletableFuture;
-
 import io.zeebe.broker.logstreams.LogStreamService;
 import io.zeebe.broker.logstreams.LogStreamServiceNames;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.protocol.Protocol;
 import io.zeebe.raft.Raft;
+import io.zeebe.raft.RaftStateListener;
 import io.zeebe.raft.state.RaftState;
 import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.ServiceName;
-import io.zeebe.util.state.SimpleStateMachineContext;
-import io.zeebe.util.state.State;
-import io.zeebe.util.state.StateMachine;
-import io.zeebe.util.state.TransitionState;
+import io.zeebe.transport.SocketAddress;
+import io.zeebe.util.sched.ZbActor;
+import io.zeebe.util.sched.future.ActorFuture;
+import org.agrona.DirectBuffer;
 
-public class StartLogStreamServiceController
+import static io.zeebe.broker.clustering.ClusterServiceNames.CLUSTER_MANAGER_SERVICE;
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
+
+public class StartLogStreamServiceController extends ZbActor
 {
-
-    private static final int TRANSITION_DEFAULT = 0;
-    private static final int TRANSITION_FAILED = 1;
-    private static final int TRANSITION_OPEN = 2;
-    private static final int TRANSITION_CLOSE = 3;
-
-    private final StateMachine<Context> stateMachine;
-
     private final OnOpenLogStreamListener onOpenCallback;
+    private final Raft raft;
+    private final ServiceName<Raft> raftServiceName;
+    private final ServiceContainer serviceContainer;
+    private final ServiceName<LogStream> serviceName;
+
+    // listeners
+    private final OnFollowerListener onFollowerListener;
+    private final OnLeaderListener onLeaderListener;
 
     public StartLogStreamServiceController(final ServiceName<Raft> raftServiceName, final Raft raft, final ServiceContainer serviceContainer, OnOpenLogStreamListener callable)
     {
         this.onOpenCallback = callable;
-
-        final State<Context> startLogStreamService = new StartLogStreamServiceState();
-        final State<Context> awaitStartLogStreamService = new AwaitServiceFutureState();
-        final State<Context> onOpenTransitionState = new OnOpenTransitionState(onOpenCallback);
-        final State<Context> open = new OpenState();
-        final State<Context> stopLogStreamService = new StopLogStreamServiceState();
-        final State<Context> awaitStopLogStreamService = new AwaitServiceFutureState();
-        final State<Context> closed = new ClosedState();
-
-        stateMachine = StateMachine.<Context>builder(s -> new Context(s, raftServiceName, raft, serviceContainer))
-            .initialState(closed)
-            .from(closed).take(TRANSITION_OPEN).to(startLogStreamService)
-            .from(closed).take(TRANSITION_CLOSE).to(closed)
-
-            .from(startLogStreamService).take(TRANSITION_DEFAULT).to(awaitStartLogStreamService)
-
-            .from(awaitStartLogStreamService).take(TRANSITION_DEFAULT).to(onOpenTransitionState)
-            .from(awaitStartLogStreamService).take(TRANSITION_FAILED).to(startLogStreamService)
-
-            .from(onOpenTransitionState).take(TRANSITION_DEFAULT).to(open)
-
-            .from(open).take(TRANSITION_CLOSE).to(stopLogStreamService)
-            .from(open).take(TRANSITION_OPEN).to(open)
-
-            .from(stopLogStreamService).take(TRANSITION_DEFAULT).to(awaitStopLogStreamService)
-
-
-            .from(awaitStopLogStreamService).take(TRANSITION_DEFAULT).to(closed)
-            .from(awaitStopLogStreamService).take(TRANSITION_FAILED).to(stopLogStreamService)
-
-            .build();
+        this.raftServiceName = raftServiceName;
+        this.raft = raft;
+        this.serviceContainer = serviceContainer;
+        this.serviceName = logStreamServiceName(raft.getLogStream().getLogName());
+        this.onFollowerListener = new OnFollowerListener();
+        this.onLeaderListener = new OnLeaderListener();
     }
 
-    public int doWork()
+    @Override
+    protected void onActorStarted()
     {
-        return stateMachine.doWork();
+        actor.run(this::startLogStream);
     }
 
-    public Raft getRaft()
-    {
-        return stateMachine.getContext().getRaft();
-    }
-
-    public ServiceName<LogStream> getServiceName()
-    {
-        return stateMachine.getContext().getServiceName();
-    }
-
-    static class StartLogStreamServiceState implements State<Context>
+    private void startLogStream()
     {
 
-        @Override
-        public int doWork(final Context context) throws Exception
+        final LogStream logStream = raft.getLogStream();
+        final LogStreamService service = new LogStreamService(logStream);
+
+        final ServiceName<LogStream> streamGroup = Protocol.SYSTEM_TOPIC_BUF.equals(logStream.getTopicName()) ?
+            LogStreamServiceNames.SYSTEM_STREAM_GROUP :
+            LogStreamServiceNames.WORKFLOW_STREAM_GROUP;
+
+        final ActorFuture<Void> future =
+            serviceContainer
+                .createService(serviceName, service)
+                .dependency(ACTOR_SCHEDULER_SERVICE)
+                .dependency(CLUSTER_MANAGER_SERVICE)
+                .dependency(raftServiceName)
+                .group(streamGroup)
+                .install();
+
+        actor.runOnCompletion(future, (v, throwable) ->
         {
-            final ServiceName<LogStream> serviceName = context.getServiceName();
-            final LogStream logStream = context.getRaft().getLogStream();
-            final LogStreamService service = new LogStreamService(logStream);
+            onOpenCallback.onOpenLogStreamService(raft.getLogStream());
 
-            final ServiceName<LogStream> streamGroup = Protocol.SYSTEM_TOPIC_BUF.equals(logStream.getTopicName()) ?
-                    LogStreamServiceNames.SYSTEM_STREAM_GROUP :
-                    LogStreamServiceNames.WORKFLOW_STREAM_GROUP;
-
-            final CompletableFuture<Void> future =
-                context.getServiceContainer()
-                       .createService(serviceName, service)
-                       .dependency(ACTOR_SCHEDULER_SERVICE)
-                       .dependency(CLUSTER_MANAGER_SERVICE)
-                       .dependency(context.raftServiceName)
-                       .group(streamGroup)
-                       .install();
-
-            context.setServiceFuture(future);
-
-            context.take(TRANSITION_DEFAULT);
-
-            return 1;
-        }
-
-        @Override
-        public boolean isInterruptable()
-        {
-            return false;
-        }
+            raft.registerRaftStateListener(onFollowerListener);
+        });
     }
 
-    static class AwaitServiceFutureState implements State<Context>
+    private class OnFollowerListener implements RaftStateListener
     {
-
         @Override
-        public int doWork(final Context context)
+        public void onStateChange(int i, DirectBuffer directBuffer, SocketAddress socketAddress, RaftState raftState)
         {
-            int workCount = 0;
-
-            final CompletableFuture<Void> future = context.getServiceFuture();
-            if (future != null && future.isDone())
+            if (raftState != RaftState.LEADER)
             {
-                workCount++;
+                actor.call(() ->
 
-                try
+
                 {
-                    future.get();
-                    context.take(TRANSITION_DEFAULT);
-                }
-                catch (final Throwable t)
-                {
-                    context.take(TRANSITION_FAILED);
-                }
-                finally
-                {
-                    context.setServiceFuture(null);
-                }
+
+                    if (serviceContainer.hasService(serviceName))
+                    {
+                        final ActorFuture<Void> future = serviceContainer.removeService(serviceName);
+
+                        actor.runOnCompletion(future, (aVoid, throwable) ->
+                        {
+                            // remove follower listener
+                            raft.removeRaftStateListener(onFollowerListener);
+
+                            // add leader listener
+                            raft.registerRaftStateListener(onLeaderListener);
+                        });
+                    }
+                });
             }
-            else if (future == null)
+        }
+    }
+
+    private class OnLeaderListener implements RaftStateListener
+    {
+        @Override
+        public void onStateChange(int i, DirectBuffer directBuffer, SocketAddress socketAddress, RaftState raftState)
+        {
+            if (raftState == RaftState.LEADER)
             {
-                context.take(TRANSITION_DEFAULT);
+                actor.run(() -> startLogStream());
             }
-
-            return workCount;
-        }
-
-        @Override
-        public boolean isInterruptable()
-        {
-            return false;
         }
     }
-
-    private static class OnOpenTransitionState implements TransitionState<Context>
-    {
-
-        private final OnOpenLogStreamListener onOpenCallback;
-
-        OnOpenTransitionState(OnOpenLogStreamListener onOpenCallback)
-        {
-            this.onOpenCallback = onOpenCallback;
-        }
-
-        @Override
-        public void work(Context context) throws Exception
-        {
-            onOpenCallback.onOpenLogStreamService(context.getRaft().getLogStream());
-            context.take(TRANSITION_DEFAULT);
-        }
-    }
-
-    static class OpenState implements State<Context>
-    {
-
-        @Override
-        public int doWork(final Context context) throws Exception
-        {
-            int workCount = 0;
-
-            if (!context.isRaftLeader())
-            {
-                workCount++;
-                context.take(TRANSITION_CLOSE);
-            }
-
-            return workCount;
-        }
-
-    }
-    static class StopLogStreamServiceState implements State<Context>
-    {
-
-
-        @Override
-        public int doWork(final Context context) throws Exception
-        {
-            final ServiceName<LogStream> serviceName = context.getServiceName();
-
-            final ServiceContainer serviceContainer = context.getServiceContainer();
-            if (serviceContainer.hasService(serviceName))
-            {
-                context.setServiceFuture(serviceContainer.removeService(serviceName));
-            }
-
-            context.take(TRANSITION_DEFAULT);
-
-            return 1;
-        }
-
-        @Override
-        public boolean isInterruptable()
-        {
-            return false;
-        }
-    }
-
-    static class ClosedState implements State<Context>
-    {
-
-        @Override
-        public int doWork(final Context context) throws Exception
-        {
-            int workCount = 0;
-
-            if (context.isRaftLeader())
-            {
-                workCount++;
-                context.take(TRANSITION_OPEN);
-            }
-
-            return workCount;
-        }
-
-    }
-
-    static class Context extends SimpleStateMachineContext
-    {
-
-        private final Raft raft;
-        private final ServiceName<Raft> raftServiceName;
-        private final ServiceContainer serviceContainer;
-        private final ServiceName<LogStream> serviceName;
-        private CompletableFuture<Void> serviceFuture;
-
-        Context(final StateMachine<Context> stateMachine, final ServiceName<Raft> raftServiceName, final Raft raft, final ServiceContainer serviceContainer)
-        {
-            super(stateMachine);
-            this.raftServiceName = raftServiceName;
-            this.raft = raft;
-            this.serviceContainer = serviceContainer;
-            this.serviceName = logStreamServiceName(raft.getLogStream().getLogName());
-
-            reset();
-        }
-
-        @Override
-        public void reset()
-        {
-            serviceFuture = null;
-        }
-
-        public Raft getRaft()
-        {
-            return raft;
-        }
-
-        public ServiceContainer getServiceContainer()
-        {
-            return serviceContainer;
-        }
-
-        public CompletableFuture<Void> getServiceFuture()
-        {
-            return serviceFuture;
-        }
-
-        public void setServiceFuture(final CompletableFuture<Void> serviceFuture)
-        {
-            this.serviceFuture = serviceFuture;
-        }
-
-        public boolean isRaftLeader()
-        {
-            return raft.getState() == RaftState.LEADER && raft.isInitialEventCommitted();
-        }
-
-        public ServiceName<LogStream> getServiceName()
-        {
-            return serviceName;
-        }
-
-    }
-
 }

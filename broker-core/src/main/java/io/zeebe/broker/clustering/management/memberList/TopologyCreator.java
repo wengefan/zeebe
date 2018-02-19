@@ -27,6 +27,7 @@ import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.msgpack.value.ValueArray;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
 
@@ -41,7 +42,7 @@ public class TopologyCreator
         this.clusterManagerContext = clusterManagerContext;
     }
 
-    public void createTopology(CompletableFuture<Topology> future)
+    public Topology createTopology()
     {
         LOG.trace("Received topology request.");
         final Iterator<MemberRaftComposite> iterator = clusterManagerContext.getMemberListService()
@@ -78,6 +79,6 @@ public class TopologyCreator
 
         // DO NOT LOG TOPOLOGY SEE https://github.com/zeebe-io/zeebe/issues/616
         // LOG.debug("Send topology {} as response.", topology);
-        future.complete(topology);
+        return topology;
     }
 }

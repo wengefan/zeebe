@@ -27,6 +27,8 @@ import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.gossip.GossipSyncRequestHandler;
 import io.zeebe.gossip.dissemination.GossipSyncRequest;
 import io.zeebe.util.DeferredCommandContext;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
@@ -35,21 +37,21 @@ public final class MemberRaftStatesSyncHandler implements GossipSyncRequestHandl
 {
     public static final Logger LOG = Loggers.CLUSTERING_LOGGER;
 
-    private final DeferredCommandContext clusterManagerCmdQueue;
     private final ClusterManagerContext clusterManagerContext;
     private final ExpandableArrayBuffer memberRaftStatesBuffer;
+    private final ActorControl actor;
 
-    public MemberRaftStatesSyncHandler(DeferredCommandContext clusterManagerCmdQueue, ClusterManagerContext clusterManagerContext)
+    public MemberRaftStatesSyncHandler(ActorControl actorControl, ClusterManagerContext clusterManagerContext)
     {
-        this.clusterManagerCmdQueue = clusterManagerCmdQueue;
+        this.actor = actorControl;
         this.clusterManagerContext = clusterManagerContext;
         this.memberRaftStatesBuffer = new ExpandableArrayBuffer();
     }
 
     @Override
-    public void onSyncRequest(GossipSyncRequest request)
+    public ActorFuture<Void> onSyncRequest(GossipSyncRequest request)
     {
-        clusterManagerCmdQueue.runAsync(() ->
+        return actor.call(() ->
         {
             LOG.debug("Got RAFT state sync request.");
             final Iterator<MemberRaftComposite> iterator = clusterManagerContext.getMemberListService()
@@ -66,8 +68,6 @@ public final class MemberRaftStatesSyncHandler implements GossipSyncRequestHandl
                     request.addPayload(next.getMember().getAddress(), payload);
                 }
             }
-            request.done();
-
             LOG.debug("Send RAFT state sync response.");
         });
     }

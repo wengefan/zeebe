@@ -42,6 +42,8 @@ import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
@@ -54,7 +56,6 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
 
     private final ClusterManagerContext context;
     private TransportComponentCfg transportComponentCfg;
-    private final DeferredCommandContext commandQueue;
     private final List<MemberRaftComposite> deadMembers;
     private final Consumer<SocketAddress> updatedMemberConsumer;
     private final TopologyCreator topologyCreator;
@@ -63,11 +64,16 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
     private final ExpandableArrayBuffer apiAddressBuffer;
     private final ExpandableArrayBuffer memberRaftStatesBuffer;
 
-    public ClusterMemberListManager(ClusterManagerContext context, TransportComponentCfg transportComponentCfg, Consumer<SocketAddress> updatedMemberConsumer)
+    private final ActorControl actor;
+
+    public ClusterMemberListManager(ClusterManagerContext context,
+                                    ActorControl actorControl,
+                                    TransportComponentCfg transportComponentCfg,
+                                    Consumer<SocketAddress> updatedMemberConsumer)
     {
         this.context = context;
         this.deadMembers = new ArrayList<>();
-        this.commandQueue = new DeferredCommandContext();
+        this.actor = actorControl;
         this.transportComponentCfg = transportComponentCfg;
         this.updatedMemberConsumer = updatedMemberConsumer;
 
@@ -86,19 +92,14 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
 
         // sync handlers
         context.getGossip()
-               .registerSyncRequestHandler(API_EVENT_TYPE, new APISyncHandler(commandQueue, context));
+               .registerSyncRequestHandler(API_EVENT_TYPE, new APISyncHandler(actorControl, context));
         context.getGossip()
-               .registerSyncRequestHandler(MEMBER_RAFT_STATES_EVENT_TYPE, new MemberRaftStatesSyncHandler(commandQueue, context));
+               .registerSyncRequestHandler(MEMBER_RAFT_STATES_EVENT_TYPE, new MemberRaftStatesSyncHandler(actorControl, context));
 
         topologyCreator = new TopologyCreator(context);
 
         this.apiAddressBuffer = new ExpandableArrayBuffer();
         this.memberRaftStatesBuffer = new ExpandableArrayBuffer();
-    }
-
-    public int doWork()
-    {
-        return commandQueue.doWork();
     }
 
     public void publishNodeAPIAddresses()
@@ -112,9 +113,9 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         gossip.publishEvent(API_EVENT_TYPE, payload);
     }
 
-    public CompletableFuture<Topology> createTopology()
+    public ActorFuture<Topology> createTopology()
     {
-        return commandQueue.runAsync(topologyCreator::createTopology);
+        return actor.call(topologyCreator::createTopology);
     }
 
     private class MembershipListener implements GossipMembershipListener
@@ -123,7 +124,7 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         public void onAdd(Member member)
         {
             final MemberRaftComposite newMember = new MemberRaftComposite(member);
-            commandQueue.runAsync(() ->
+            actor.call(() ->
             {
                 LOG.debug("Add member {} to member list.", newMember);
                 MemberRaftComposite memberRaftComposite = newMember;
@@ -136,7 +137,6 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
                 }
                 context.getMemberListService()
                        .add(memberRaftComposite);
-
             });
         }
 
@@ -144,7 +144,7 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         public void onRemove(Member member)
         {
             final SocketAddress memberAddress = member.getAddress();
-            commandQueue.runAsync(() ->
+            actor.call(() ->
             {
                 final MemberRaftComposite removedMember = context.getMemberListService()
                                                                  .remove(memberAddress);
@@ -173,7 +173,7 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         {
             final DirectBuffer savedBuffer = BufferUtil.cloneBuffer(directBuffer);
             final SocketAddress savedSocketAddress = new SocketAddress(socketAddress);
-            commandQueue.runAsync(() ->
+            actor.call(() ->
             {
                 LOG.debug("Received API event from member {}.", savedSocketAddress);
 
@@ -209,7 +209,7 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         {
             final DirectBuffer savedBuffer = BufferUtil.cloneBuffer(directBuffer);
             final SocketAddress savedSocketAddress = new SocketAddress(socketAddress);
-            commandQueue.runAsync(() ->
+            actor.call(() ->
             {
                 LOG.debug("Received raft state change event for member {}", savedSocketAddress);
                 final MemberRaftComposite member = context.getMemberListService()
@@ -235,14 +235,14 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
         final int partitionId = logStream.getPartitionId();
         final DirectBuffer savedTopicName = BufferUtil.cloneBuffer(logStream.getTopicName());
 
-        commandQueue.runAsync(() ->  updateTopologyOnRaftStateChangeForPartition(LEADER, partitionId, savedTopicName));
+        actor.call(() ->  updateTopologyOnRaftStateChangeForPartition(LEADER, partitionId, savedTopicName));
     }
 
     @Override
     public void onStateChange(int partitionId, DirectBuffer topicName, SocketAddress socketAddress, RaftState raftState)
     {
         final DirectBuffer savedTopicName = BufferUtil.cloneBuffer(topicName);
-        commandQueue.runAsync(() ->
+        actor.call(() ->
         {
             if (raftState == RaftState.FOLLOWER)
             {

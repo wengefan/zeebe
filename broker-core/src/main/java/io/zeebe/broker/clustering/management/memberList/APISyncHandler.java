@@ -26,6 +26,8 @@ import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.gossip.GossipSyncRequestHandler;
 import io.zeebe.gossip.dissemination.GossipSyncRequest;
 import io.zeebe.util.DeferredCommandContext;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
@@ -34,21 +36,21 @@ public final class APISyncHandler implements GossipSyncRequestHandler
 {
     public static final Logger LOG = Loggers.CLUSTERING_LOGGER;
 
-    private final DeferredCommandContext commandQueue;
     private final ClusterManagerContext clusterManagerContext;
     private final ExpandableArrayBuffer apiAddressBuffer;
+    private final ActorControl actor;
 
-    public APISyncHandler(DeferredCommandContext commandQueue, ClusterManagerContext clusterManagerContext)
+    public APISyncHandler(ActorControl actorControl, ClusterManagerContext clusterManagerContext)
     {
-        this.commandQueue = commandQueue;
+        this.actor = actorControl;
         this.clusterManagerContext = clusterManagerContext;
         this.apiAddressBuffer = new ExpandableArrayBuffer();
     }
 
     @Override
-    public void onSyncRequest(GossipSyncRequest request)
+    public ActorFuture<Void> onSyncRequest(GossipSyncRequest request)
     {
-        commandQueue.runAsync(() ->
+        return actor.call(() ->
         {
             LOG.debug("Got API sync request.");
             final Iterator<MemberRaftComposite> iterator = clusterManagerContext.getMemberListService()
@@ -67,7 +69,6 @@ public final class APISyncHandler implements GossipSyncRequestHandler
                     request.addPayload(next.getMember().getAddress(), payload);
                 }
             }
-            request.done();
             LOG.debug("Send API sync response.");
         });
     }
