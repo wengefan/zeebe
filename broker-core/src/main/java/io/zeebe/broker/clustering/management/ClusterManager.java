@@ -17,18 +17,6 @@
  */
 package io.zeebe.broker.clustering.management;
 
-import static io.zeebe.broker.clustering.ClusterServiceNames.RAFT_SERVICE_GROUP;
-import static io.zeebe.broker.clustering.ClusterServiceNames.raftServiceName;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
-
 import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.handler.Topology;
 import io.zeebe.broker.clustering.management.handler.ClusterManagerFragmentHandler;
@@ -52,14 +40,22 @@ import io.zeebe.raft.state.RaftState;
 import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.transport.*;
-import io.zeebe.transport.impl.ClientRequestRetryController;
-import io.zeebe.util.DeferredCommandContext;
-import io.zeebe.util.actor.Actor;
 import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.slf4j.Logger;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
+
+import static io.zeebe.broker.clustering.ClusterServiceNames.RAFT_SERVICE_GROUP;
+import static io.zeebe.broker.clustering.ClusterServiceNames.raftServiceName;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
 
 public class ClusterManager extends ZbActor
 {
@@ -83,7 +79,9 @@ public class ClusterManager extends ZbActor
     private final LogStreamsManager logStreamsManager;
     private final ClusterMemberListManager clusterMemberListManager;
 
-    public ClusterManager(final ClusterManagerContext context, final ServiceContainer serviceContainer, final TransportComponentCfg transportComponentCfg)
+    public ClusterManager(final ClusterManagerContext context,
+                          final ServiceContainer serviceContainer,
+                          final TransportComponentCfg transportComponentCfg)
     {
         this.context = context;
         this.serviceContainer = serviceContainer;
@@ -97,7 +95,21 @@ public class ClusterManager extends ZbActor
         this.clusterMemberListManager = new ClusterMemberListManager(context, actor, transportComponentCfg, this::inviteUpdatedMember);
     }
 
-    public void open()
+    public void close()
+    {
+        actor.close();
+    }
+
+    @Override
+    protected void onActorClosing()
+    {
+        for (StartLogStreamServiceController controller : startLogStreamServiceControllers)
+        {
+            controller.close();
+        }
+    }
+
+    private void open()
     {
         final List<SocketAddress> collect = Arrays.stream(transportComponentCfg.gossip.initialContactPoints)
             .map(SocketAddress::from)
@@ -178,35 +190,20 @@ public class ClusterManager extends ZbActor
         final ActorFuture<ServerInputSubscription> serverInputSubscriptionActorFuture = context.getServerTransport()
             .openSubscription("cluster-management", fragmentHandler, fragmentHandler);
 
-        actor.runOnCompletion(serverInputSubscriptionActorFuture, (subscription, throwable)
-        ->
+        actor.runOnCompletion(serverInputSubscriptionActorFuture, (subscription, throwable) ->
         {
             if (throwable == null)
             {
                 actor.consume(subscription, () -> subscription.poll());
+
+                open();
             }
             else
             {
-                // aaaaaa
+                Loggers.CLUSTERING_LOGGER.error("Failed to open a subscription.");
             }
         });
 
-        open();
-    }
-
-    @Override
-    public int doWork()
-    {
-        int workCount = 0;
-
-
-        for (int j = 0; j < startLogStreamServiceControllers.size(); j++)
-        {
-            workCount += startLogStreamServiceControllers.get(j)
-                                                         .doWork();
-        }
-
-        return workCount;
     }
 
     private void inviteUpdatedMember(SocketAddress updatedMember)
@@ -386,7 +383,9 @@ public class ClusterManager extends ZbActor
                                                                                              .getPartitionId(), raft.getState());
             rafts.add(raft);
 
-            startLogStreamServiceControllers.add(new StartLogStreamServiceController(raftServiceName, raft, serviceContainer, clusterMemberListManager));
+            final StartLogStreamServiceController startController = new StartLogStreamServiceController(raftServiceName, raft, serviceContainer, clusterMemberListManager);
+            startLogStreamServiceControllers.add(startController);
+            context.getActorScheduler().submitActor(startController);
 
             if (isRaftCreator)
             {
@@ -430,11 +429,12 @@ public class ClusterManager extends ZbActor
 
             for (int i = 0; i < startLogStreamServiceControllers.size(); i++)
             {
-                final Raft r = startLogStreamServiceControllers.get(i)
-                                                               .getRaft();
+                final StartLogStreamServiceController startController = startLogStreamServiceControllers.get(i);
+                final Raft r = startController.getRaft();
                 final LogStream stream = r.getLogStream();
                 if (partitionId == stream.getPartitionId())
                 {
+                    startController.close();
                     startLogStreamServiceControllers.remove(i);
                     break;
                 }

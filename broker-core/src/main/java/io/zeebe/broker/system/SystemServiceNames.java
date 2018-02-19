@@ -25,11 +25,11 @@ import io.zeebe.broker.system.executor.ScheduledExecutor;
 import io.zeebe.broker.system.log.SystemPartitionManager;
 import io.zeebe.logstreams.processor.StreamProcessorController;
 import io.zeebe.servicecontainer.ServiceName;
-import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActorScheduler;
 
 public class SystemServiceNames
 {
-    public static final ServiceName<ActorScheduler> ACTOR_SCHEDULER_SERVICE = ServiceName.newServiceName("broker.task.scheduler", ActorScheduler.class);
+    public static final ServiceName<ZbActorScheduler> ACTOR_SCHEDULER_SERVICE = ServiceName.newServiceName("broker.task.scheduler", ZbActorScheduler.class);
 
     public static final ServiceName<Counters> COUNTERS_MANAGER_SERVICE = ServiceName.newServiceName("broker.countersManager", Counters.class);
 

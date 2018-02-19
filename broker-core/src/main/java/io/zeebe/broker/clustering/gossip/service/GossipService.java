@@ -28,15 +28,15 @@ import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.actor.ActorReference;
 import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActorScheduler;
 
 public class GossipService implements Service<Gossip>
 {
-    private final Injector<ActorScheduler> actorSchedulerInjector = new Injector<>();
+    private final Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     private final Injector<ClientTransport> clientTransportInjector = new Injector<>();
     private final Injector<BufferingServerTransport> bufferingServerTransportInjector = new Injector<>();
 
     private Gossip gossip;
-    private ActorReference actorRef;
     private final TransportComponentCfg transportComponentCfg;
 
     public GossipService(TransportComponentCfg transportComponentCfg)
@@ -47,21 +47,21 @@ public class GossipService implements Service<Gossip>
     @Override
     public void start(ServiceStartContext startContext)
     {
-        final ActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+        final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
         final SocketAddress host = new SocketAddress(transportComponentCfg.managementApi.getHost(transportComponentCfg.host), transportComponentCfg.managementApi.port);
 
         this.gossip = new Gossip(host, bufferingServerTransportInjector.getValue(),
                                  clientTransportInjector.getValue(), transportComponentCfg.gossip);
 
 
-        actorRef = actorScheduler.schedule(gossip);
+        actorScheduler.submitActor(gossip);
     }
 
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        stopContext.async(gossip.leave()
-                                .whenComplete((v, t) -> actorRef.close()));
+        // TODO run close after leave is finished!
+        stopContext.async(gossip.leave());
     }
 
     @Override
@@ -70,7 +70,7 @@ public class GossipService implements Service<Gossip>
         return gossip;
     }
 
-    public Injector<ActorScheduler> getActorSchedulerInjector()
+    public Injector<ZbActorScheduler> getActorSchedulerInjector()
     {
         return actorSchedulerInjector;
     }

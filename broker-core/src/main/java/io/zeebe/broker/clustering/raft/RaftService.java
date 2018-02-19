@@ -33,6 +33,7 @@ import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.actor.ActorReference;
 import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActorScheduler;
 
 public class RaftService implements Service<Raft>
 {
@@ -42,12 +43,11 @@ public class RaftService implements Service<Raft>
     private final List<SocketAddress> members;
     private final RaftPersistentStorage persistentStorage;
     private final RaftStateListener raftStateListener;
-    private Injector<ActorScheduler> actorSchedulerInjector = new Injector<>();
+    private Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     private Injector<BufferingServerTransport> serverTransportInjector = new Injector<>();
     private Injector<ClientTransport> clientTransportInjector = new Injector<>();
 
     private Raft raft;
-    private ActorReference actorReference;
 
     public RaftService(final SocketAddress socketAddress, final LogStream logStream, final List<SocketAddress> members, final RaftPersistentStorage persistentStorage, RaftStateListener raftStateListener)
     {
@@ -62,33 +62,42 @@ public class RaftService implements Service<Raft>
     public void start(final ServiceStartContext startContext)
     {
 
-        final CompletableFuture<Void> startFuture =
-            logStream.openAsync().thenAccept(v ->
-            {
-                final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
-                final ClientTransport clientTransport = clientTransportInjector.getValue();
-                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
-                raft.registerRaftStateListener(raftStateListener);
+        logStream.openAsync().block(() ->
+        {
+            final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
+            final ClientTransport clientTransport = clientTransportInjector.getValue();
+            raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
+            raft.registerRaftStateListener(raftStateListener);
 
-                raft.addMembers(members);
+            raft.addMembers(members);
 
-                final ActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-                actorReference = actorScheduler.schedule(raft);
-            });
+            final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+            actorScheduler.submitActor(raft);
+        });
+//
+//        final CompletableFuture<Void> startFuture =
+//            logStream.openAsync().thenAccept(v ->
+//            {
+//                final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
+//                final ClientTransport clientTransport = clientTransportInjector.getValue();
+//                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
+//                raft.registerRaftStateListener(raftStateListener);
+//
+//                raft.addMembers(members);
+//
+//                final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+//                actorScheduler.submitActor(raft);
+//            });
 
-        startContext.async(startFuture);
+//        startContext.async(startFuture);
     }
 
     @Override
     public void stop(final ServiceStopContext stopContext)
     {
-        actorReference.close();
+        // TODO chain futures
         raft.close();
-
-        final CompletableFuture<Void> stopFuture =
-            logStream.closeLogStreamController().thenCompose(v -> logStream.closeAsync());
-
-        stopContext.async(stopFuture);
+        logStream.closeLogStreamController().block(() -> logStream.closeAsync());
     }
 
     @Override
@@ -97,7 +106,7 @@ public class RaftService implements Service<Raft>
         return raft;
     }
 
-    public Injector<ActorScheduler> getActorSchedulerInjector()
+    public Injector<ZbActorScheduler> getActorSchedulerInjector()
     {
         return actorSchedulerInjector;
     }

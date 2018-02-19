@@ -99,8 +99,6 @@ public class StartLogStreamServiceController extends ZbActor
             if (raftState != RaftState.LEADER)
             {
                 actor.call(() ->
-
-
                 {
 
                     if (serviceContainer.hasService(serviceName))
@@ -128,8 +126,25 @@ public class StartLogStreamServiceController extends ZbActor
         {
             if (raftState == RaftState.LEADER)
             {
-                actor.run(() -> startLogStream());
+                actor.call(() -> startLogStream());
             }
         }
+    }
+
+    @Override
+    protected void onActorClosing()
+    {
+        raft.removeRaftStateListener(onFollowerListener);
+        raft.removeRaftStateListener(onLeaderListener);
+    }
+
+    public Raft getRaft()
+    {
+        return raft;
+    }
+
+    public void close()
+    {
+        actor.close();
     }
 }
