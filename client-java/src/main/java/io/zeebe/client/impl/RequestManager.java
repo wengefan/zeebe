@@ -19,6 +19,7 @@ import io.zeebe.client.cmd.ClientCommandRejectedException;
 import io.zeebe.client.cmd.ClientException;
 import io.zeebe.client.event.Event;
 import io.zeebe.client.impl.cmd.CommandImpl;
+import io.zeebe.client.impl.cmd.ReceiverAwareResponseResult;
 import io.zeebe.client.task.impl.ControlMessageRequest;
 import io.zeebe.client.task.impl.ErrorResponseHandler;
 import io.zeebe.protocol.clientapi.ErrorCode;
@@ -28,7 +29,7 @@ import io.zeebe.transport.ClientRequest;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.sched.future.ActorFuture;
-import io.zeebe.util.sched.future.CompletedActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
 public class RequestManager
 {
@@ -99,7 +100,7 @@ public class RequestManager
             return () ->
             {
                 final TopologyImpl topology = topologyManager.getTopology();
-                return new CompletedActorFuture<>(topology.getRandomBroker());
+                return CompletableActorFuture.completed(topology.getRandomBroker());
             };
         }
         else
@@ -146,7 +147,7 @@ public class RequestManager
             return () ->
             {
                 final TopologyImpl topology = topologyManager.getTopology();
-                return new CompletedActorFuture<>(topology.getLeaderForPartition(targetPartition));
+                return CompletableActorFuture.completed(topology.getLeaderForPartition(targetPartition));
             };
         }
 
@@ -255,6 +256,12 @@ public class RequestManager
                             headerDecoder.encodedLength(),
                             headerDecoder.blockLength(),
                             headerDecoder.version());
+
+                    if (this.result instanceof ReceiverAwareResponseResult)
+                    {
+                        ((ReceiverAwareResponseResult) this.result).setReceiver(resolvedRequest.getRemoteAddress());
+                    }
+
                     return;
                 }
                 catch (ClientCommandRejectedException e)

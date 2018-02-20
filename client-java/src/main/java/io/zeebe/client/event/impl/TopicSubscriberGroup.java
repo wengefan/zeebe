@@ -103,6 +103,6 @@ public class TopicSubscriberGroup extends EventSubscriberGroup2 //<TopicSubscrib
     @Override
     protected EventSubscriber buildSubscriber(EventSubscriptionCreationResult result)
     {
-        return new TopicSubscriber(client.topics(), subscription, result.getSubscriberKey(), result.getPartitionId(), this, acquisition);
+        return new TopicSubscriber(client.topics(), subscription, result.getSubscriberKey(), result.getEventPublisher(), result.getPartitionId(), this, acquisition);
     }
 }

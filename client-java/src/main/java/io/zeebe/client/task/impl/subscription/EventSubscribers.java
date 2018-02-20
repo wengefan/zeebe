@@ -25,6 +25,7 @@ import org.agrona.collections.Long2ObjectHashMap;
 import org.slf4j.Logger;
 
 import io.zeebe.client.impl.Loggers;
+import io.zeebe.transport.RemoteAddress;
 
 @SuppressWarnings("rawtypes")
 public class EventSubscribers
@@ -76,7 +77,7 @@ public class EventSubscribers
     {
         try
         {
-            group.close();
+            group.doClose(null);
         }
         catch (final Exception e)
         {
@@ -157,6 +158,12 @@ public class EventSubscribers
         {
             action.accept(subscription);
         }
+    }
+
+    public void reopenSubscribersForRemote(RemoteAddress remote)
+    {
+        forAllDoConsume(managedSubscriberGroups, s -> s.reopenSubscriptionsForRemoteAsync(remote));
+        forAllDoConsume(pollableSubscriberGroups, s -> s.reopenSubscriptionsForRemoteAsync(remote));
     }
 
     public int pollManagedSubscribers()

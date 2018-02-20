@@ -21,6 +21,7 @@ import java.util.function.Function;
 import io.zeebe.client.task.impl.subscription.EventAcquisition2;
 import io.zeebe.client.task.impl.subscription.EventSubscriber;
 import io.zeebe.client.task.impl.subscription.EventSubscriberGroup2;
+import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.future.ActorFuture;
 
@@ -43,11 +44,12 @@ public class TopicSubscriber extends EventSubscriber
             TopicClientImpl client,
             TopicSubscriptionSpec subscription,
             long subscriberKey,
+            RemoteAddress eventSource,
             int partitionId,
             EventSubscriberGroup2 group,
             EventAcquisition2 acquisition)
     {
-        super(subscriberKey, partitionId, subscription.getPrefetchCapacity(), group, acquisition);
+        super(subscriberKey, partitionId, subscription.getPrefetchCapacity(), eventSource, group, acquisition);
         this.subscription = subscription;
         this.client = client;
         this.lastProcessedEventPosition = subscription.getStartPosition(partitionId);
@@ -117,10 +119,11 @@ public class TopicSubscriber extends EventSubscriber
 
         if (positionToAck > lastAcknowledgedPosition)
         {
+            // TODO: what to do on error here? close the group (but only if it is not already closing)
             client.acknowledgeEvent(subscription.getTopic(), partitionId)
                 .subscriptionName(subscription.getName())
                 .ackPosition(positionToAck)
-                .execute();
+                .executeAsync();
 
             lastAcknowledgedPosition = positionToAck;
         }

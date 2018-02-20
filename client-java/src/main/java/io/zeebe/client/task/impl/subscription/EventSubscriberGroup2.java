@@ -1,5 +1,6 @@
 package io.zeebe.client.task.impl.subscription;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,7 @@ public abstract class EventSubscriberGroup2
     protected final EventAcquisition2 acquisition;
 
     protected CompletableActorFuture<EventSubscriberGroup2> openFuture;
+    protected List<CompletableActorFuture<Void>> closeFutures = new ArrayList<>();
 
     private volatile int state = STATE_OPENING;
 
@@ -84,37 +86,67 @@ public abstract class EventSubscriberGroup2
         });
     }
 
-    public CompletableActorFuture<Void> closeAsync()
+    public void doClose(final CompletableActorFuture<Void> closeFuture)
     {
-        final CompletableActorFuture<Void> closeFuture = new CompletableActorFuture<>();
+        if (closeFuture != null)
+        {
+            this.closeFutures.add(closeFuture);
+        }
 
-        // TODO: das ist nicht so toll; diese Klasse sollte selbst nicht actor.call aufrufen
-        actor.call(() ->
+        if (subscribers.isEmpty())
+        {
+            onAllSubscribersClosed();
+        }
+        else
         {
             subscribers.forEach(subscriber ->
             {
-                final ActorFuture<Void> closeSubscriberFuture = subscriber.requestSubscriptionClose();
+                subscriber.disable();
 
-                actor.runOnCompletion(closeSubscriberFuture, (v, t) ->
+                actor.runUntilDone(() ->
                 {
-                    // TODO: what to do on exception?
-                    onSubscriberClosed(subscriber);
-
-                    if (subscribers.isEmpty())
+                    if (!subscriber.hasEventsInProcessing())
                     {
-                        closeFuture.complete(null);
-                        state = STATE_CLOSED;
+                        final ActorFuture<Void> closeSubscriberFuture = subscriber.requestSubscriptionClose();
+                        actor.runOnCompletion(closeSubscriberFuture, (v, t) ->
+                        {
+                            // TODO: what to do on exception?
+                            onSubscriberClosed(subscriber);
+
+                            if (subscribers.isEmpty())
+                            {
+                                onAllSubscribersClosed();
+                            }
+                        });
+                        actor.done();
+                    }
+                    else
+                    {
+                        actor.yield();
                     }
                 });
             });
-        });
+        }
+    }
 
+    protected void onAllSubscribersClosed()
+    {
+        // TODO: should also resolve openFutures here
+        closeFutures.forEach(f -> f.complete(null));
+        closeFutures.clear();
+        state = STATE_CLOSED;
+    }
 
-        return closeFuture;
+    public ActorFuture<Void> closeAsync()
+    {
+
+        return acquisition.closeGroup(this);
     }
 
     public void reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
     {
+        System.out.println("reopening notification received; has " + subscribers.size() + " subscribers");
+
         final Iterator<EventSubscriber> it = subscribers.iterator();
 
         while (it.hasNext())
@@ -122,6 +154,7 @@ public abstract class EventSubscriberGroup2
             final EventSubscriber subscriber = it.next();
             if (subscriber.getEventSource().equals(remoteAddress))
             {
+                subscriber.disable();
                 onSubscriberClosed(subscriber);
                 // TODO: hier sollte man vll auch den Zustand des subscribers ändern
                 openSubscriber(subscriber.getPartitionId());
@@ -154,12 +187,15 @@ public abstract class EventSubscriberGroup2
 
     private void openSubscriber(int partitionId)
     {
+        System.out.println("Opening subscriber to partition " + partitionId);
         final ActorFuture<? extends EventSubscriptionCreationResult> future = requestNewSubscriber(partitionId);
         // TODO: must deal with the case when the #close-Command is received intermittently
         actor.runOnCompletion(future, (result, throwable) ->
         {
             if (throwable == null)
             {
+                System.out.println("Subscriber opened successfully");
+
                 onSubscriberOpened(result);
 
                 if (openFuture != null && hasSubscriberForEveryPartition())
@@ -167,10 +203,13 @@ public abstract class EventSubscriberGroup2
                     // TODO: this is fragile when subscribers are closing intermediately
                     openFuture.complete(this);
                     state = STATE_OPEN;
+                    openFuture = null;
                 }
             }
             else
             {
+                System.out.println("Opening subscriber failed; Closing group");
+                doClose(null);
                 // TODO: exception handling
             }
         });

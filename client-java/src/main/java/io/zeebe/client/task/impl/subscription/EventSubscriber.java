@@ -51,11 +51,16 @@ public abstract class EventSubscriber
     private static final int STATE_OPEN = 0;
     private static final int STATE_DISABLED = 1; // required to immediately disable a subscriber and stop processing further events
 
-    public EventSubscriber(long subscriberKey, int partitionId, int capacity,
+    public EventSubscriber(
+            long subscriberKey,
+            int partitionId,
+            int capacity,
+            RemoteAddress eventSource,
             EventSubscriberGroup2 group,
             EventAcquisition2 acquisition)
     {
         this.subscriberKey = subscriberKey;
+        this.eventSource = eventSource;
         this.pendingEvents = new ManyToManyConcurrentArrayQueue<>(capacity);
         this.capacity = capacity;
         this.group = group;

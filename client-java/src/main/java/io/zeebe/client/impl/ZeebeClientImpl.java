@@ -52,6 +52,7 @@ import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.transport.Transports;
 import io.zeebe.util.sched.ZbActorScheduler;
+import io.zeebe.util.sched.clock.ActorClock;
 
 public class ZeebeClientImpl implements ZeebeClient
 {
@@ -91,7 +92,13 @@ public class ZeebeClientImpl implements ZeebeClient
 
     private final int numExecutionThreads;
 
+
     public ZeebeClientImpl(final Properties properties)
+    {
+        this(properties, null);
+    }
+
+    public ZeebeClientImpl(final Properties properties, ActorClock actorClock)
     {
         LOG.info("Version: {}", VERSION);
 
@@ -105,7 +112,7 @@ public class ZeebeClientImpl implements ZeebeClient
 
         // TODO: init properly
         final int numThreads = Math.min(1, Runtime.getRuntime().availableProcessors() - 1);
-        this.scheduler = new ZbActorScheduler(numThreads);
+        this.scheduler = new ZbActorScheduler(numThreads, actorClock);
         this.scheduler.start();
 
         dataFrameReceiveBuffer = Dispatchers.create("receive-buffer")
@@ -174,6 +181,7 @@ public class ZeebeClientImpl implements ZeebeClient
                 requestTimeout);
 
         this.eventAcquisition = new EventAcquisition2(this);
+        this.transport.registerChannelListener(eventAcquisition);
         this.scheduler.submitActor(eventAcquisition);
 
         // TODO: implement reopen-Feature

@@ -21,9 +21,7 @@ import static org.junit.Assert.fail;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -32,31 +30,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.RuleChain;
-import org.junit.rules.Timeout;
 
 import io.zeebe.client.ZeebeClient;
-import io.zeebe.client.event.impl.TopicSubscriber;
 import io.zeebe.client.event.impl.TopicSubscriberGroup;
-import io.zeebe.client.event.impl.TopicSubscriptionBuilderImpl;
-import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
 import io.zeebe.client.util.ClientRule;
 import io.zeebe.protocol.clientapi.ControlMessageType;
 import io.zeebe.protocol.clientapi.EventType;
 import io.zeebe.test.broker.protocol.brokerapi.ControlMessageRequest;
 import io.zeebe.test.broker.protocol.brokerapi.ExecuteCommandRequest;
-import io.zeebe.test.broker.protocol.brokerapi.ResponseController;
 import io.zeebe.test.broker.protocol.brokerapi.StubBrokerRule;
 import io.zeebe.test.util.Conditions;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.sched.future.ActorFuture;
-import io.zeebe.util.time.ClockUtil;
 
 public class TopicSubscriptionTest
 {
@@ -75,22 +66,12 @@ public class TopicSubscriptionTest
     @Rule
     public ExpectedException exception = ExpectedException.none();
 
-    @Rule
-    public Timeout testTimeout = Timeout.seconds(15);
-
     protected ZeebeClient client;
 
     @Before
     public void setUp()
     {
         this.client = clientRule.getClient();
-    }
-
-
-    @After
-    public void tearDown()
-    {
-        ClockUtil.reset();
     }
 
     @Test
@@ -475,7 +456,7 @@ public class TopicSubscriptionTest
         // when
         broker.closeTransport();
         Thread.sleep(500L); // let subscriber attempt reopening
-        ClockUtil.addTime(Duration.ofSeconds(60)); // make request time out immediately
+        clientRule.getClock().addTime(Duration.ofSeconds(60)); // make request time out immediately
 
         // then
         TestUtil.waitUntil(() -> subscription.isClosed());
@@ -485,6 +466,8 @@ public class TopicSubscriptionTest
     @Test
     public void shouldCloseSubscriptionOnClientClose()
     {
+        fail("https://github.com/zeebe-io/zeebe/issues/677");
+
         // given
         broker.stubTopicSubscriptionApi(123L);
 
@@ -889,50 +872,57 @@ public class TopicSubscriptionTest
                 + "es soll nicht möglich sein den Client/EventAcquisition zu schließen und gleichzeitig einen Subscriber zu öffnen, sodass"
                 + "am Ende Subscriber offen bleiben");
 
-        // given
-        final int subscriberKey = 123;
+//        // given
+//        final int subscriberKey = 123;
+//
+//        broker.stubTopicSubscriptionApi(0L);
+//        final ResponseController responseController = broker.onExecuteCommandRequest(EventType.SUBSCRIBER_EVENT, "SUBSCRIBE")
+//            .respondWith()
+//            .key(subscriberKey)
+//            .event()
+//                .allOf((r) -> r.getCommand())
+//                .put("state", "SUBSCRIBED")
+//                .done()
+//            .registerControlled();
+//
+//        final TopicSubscriptionBuilderImpl builder = (TopicSubscriptionBuilderImpl) client.topics().newSubscription(clientRule.getDefaultTopicName())
+//            .handler(DO_NOTHING)
+//            .name("foo");
+//
+//        final Future<TopicSubscriberGroup> subscriberGroup = builder
+//            .buildSubscriberGroup();
+//
+//        subscriberGroup.openAsync();
+//
+//        waitUntil(() ->
+//            broker.getReceivedCommandRequests().stream()
+//                .filter(r -> r.eventType() == EventType.SUBSCRIBER_EVENT && "SUBSCRIBE".equals(r.getCommand().get("state")))
+//                .count() == 1);
+//
+//        final CompletableFuture<EventSubscriberGroup<TopicSubscriber>> closeFuture = subscriberGroup.closeAsync();
+//
+//        // when
+//        responseController.unblockNextResponse();
+//
+//        // then
+//        waitUntil(() -> subscriberGroup.isClosed());
+//
+//        assertThat(closeFuture).isCompleted();
+//
+//        final Optional<ControlMessageRequest> closeRequest = broker.getReceivedControlMessageRequests().stream()
+//            .filter(c -> c.messageType() == ControlMessageType.REMOVE_TOPIC_SUBSCRIPTION)
+//            .findFirst();
+//
+//        assertThat(closeRequest).isPresent();
+//        final ControlMessageRequest request = closeRequest.get();
+//        assertThat(request.getData()).containsEntry("subscriberKey", subscriberKey);
+    }
 
-        broker.stubTopicSubscriptionApi(0L);
-        final ResponseController responseController = broker.onExecuteCommandRequest(EventType.SUBSCRIBER_EVENT, "SUBSCRIBE")
-            .respondWith()
-            .key(subscriberKey)
-            .event()
-                .allOf((r) -> r.getCommand())
-                .put("state", "SUBSCRIBED")
-                .done()
-            .registerControlled();
-
-        final TopicSubscriptionBuilderImpl builder = (TopicSubscriptionBuilderImpl) client.topics().newSubscription(clientRule.getDefaultTopicName())
-            .handler(DO_NOTHING)
-            .name("foo");
-
-        final Future<TopicSubscriberGroup subscriberGroup = builder
-            .buildSubscriberGroup();
-
-        subscriberGroup.openAsync();
-
-        waitUntil(() ->
-            broker.getReceivedCommandRequests().stream()
-                .filter(r -> r.eventType() == EventType.SUBSCRIBER_EVENT && "SUBSCRIBE".equals(r.getCommand().get("state")))
-                .count() == 1);
-
-        final CompletableFuture<EventSubscriberGroup<TopicSubscriber>> closeFuture = subscriberGroup.closeAsync();
-
-        // when
-        responseController.unblockNextResponse();
-
-        // then
-        waitUntil(() -> subscriberGroup.isClosed());
-
-        assertThat(closeFuture).isCompleted();
-
-        final Optional<ControlMessageRequest> closeRequest = broker.getReceivedControlMessageRequests().stream()
-            .filter(c -> c.messageType() == ControlMessageType.REMOVE_TOPIC_SUBSCRIPTION)
-            .findFirst();
-
-        assertThat(closeRequest).isPresent();
-        final ControlMessageRequest request = closeRequest.get();
-        assertThat(request.getData()).containsEntry("subscriberKey", subscriberKey);
+    @Test
+    public void shouldHandleConcurrentOpeningAndClosingOfSubscribers()
+    {
+        // TODO: requests (open, close, ack) are no longer blocking; identify error cases and test them
+        fail("Implement");
     }
 
     protected void assertMetadata(Event actualEvent, long expectedKey, long expectedPosition,
