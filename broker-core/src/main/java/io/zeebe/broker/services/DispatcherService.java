@@ -47,6 +47,7 @@ public class DispatcherService implements Service<Dispatcher>
                 .name(ctx.getName())
                 .countersManager(counters.getCountersManager())
                 .countersBuffer(counters.getCountersBuffer())
+                .actorScheduler(actorSchedulerInjector.getValue())
                 .build();
     }
 
