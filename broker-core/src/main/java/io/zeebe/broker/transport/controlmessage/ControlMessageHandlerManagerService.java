@@ -17,9 +17,6 @@
  */
 package io.zeebe.broker.transport.controlmessage;
 
-import java.util.Arrays;
-import java.util.List;
-
 import io.zeebe.broker.clustering.handler.RequestTopologyHandler;
 import io.zeebe.broker.clustering.management.ClusterManager;
 import io.zeebe.broker.event.handler.RemoveTopicSubscriptionHandler;
@@ -34,8 +31,10 @@ import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.ServerOutput;
 import io.zeebe.transport.ServerTransport;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class ControlMessageHandlerManagerService implements Service<ControlMessageHandlerManager>
 {

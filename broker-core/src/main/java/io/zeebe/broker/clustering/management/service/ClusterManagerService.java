@@ -22,8 +22,6 @@ import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.broker.transport.cfg.TransportComponentCfg;
 import io.zeebe.raft.Raft;
 import io.zeebe.servicecontainer.*;
-import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
 
 public class ClusterManagerService implements Service<ClusterManager>

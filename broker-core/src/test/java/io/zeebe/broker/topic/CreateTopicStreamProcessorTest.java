@@ -17,46 +17,12 @@
  */
 package io.zeebe.broker.topic;
 
-import static io.zeebe.test.util.TestUtil.doRepeatedly;
-import static io.zeebe.test.util.TestUtil.waitUntil;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 import io.zeebe.broker.clustering.handler.TopologyBroker;
-import org.agrona.DirectBuffer;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.RuleChain;
-import org.junit.rules.TemporaryFolder;
-
 import io.zeebe.broker.clustering.management.PartitionManager;
 import io.zeebe.broker.clustering.member.Member;
 import io.zeebe.broker.logstreams.processor.TypedStreamEnvironment;
 import io.zeebe.broker.logstreams.processor.TypedStreamProcessor;
-import io.zeebe.broker.system.log.PartitionEvent;
-import io.zeebe.broker.system.log.PartitionState;
-import io.zeebe.broker.system.log.PendingPartitionsIndex;
-import io.zeebe.broker.system.log.ResolvePendingPartitionsCommand;
-import io.zeebe.broker.system.log.SystemPartitionManager;
-import io.zeebe.broker.system.log.TopicEvent;
-import io.zeebe.broker.system.log.TopicState;
-import io.zeebe.broker.system.log.TopicsIndex;
+import io.zeebe.broker.system.log.*;
 import io.zeebe.broker.transport.clientapi.BufferingServerOutput;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.msgpack.UnpackedObject;
@@ -64,12 +30,27 @@ import io.zeebe.test.util.AutoCloseableRule;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.transport.impl.RequestResponseHeaderDescriptor;
 import io.zeebe.transport.impl.TransportHeaderDescriptor;
-import io.zeebe.util.actor.ActorScheduler;
-import io.zeebe.util.actor.ActorSchedulerBuilder;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.collection.IntIterator;
 import io.zeebe.util.collection.IntListIterator;
+import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import io.zeebe.util.time.ClockUtil;
+import org.agrona.DirectBuffer;
+import org.junit.*;
+import org.junit.rules.RuleChain;
+import org.junit.rules.TemporaryFolder;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static io.zeebe.test.util.TestUtil.doRepeatedly;
+import static io.zeebe.test.util.TestUtil.waitUntil;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 public class CreateTopicStreamProcessorTest
 {
@@ -83,8 +64,10 @@ public class CreateTopicStreamProcessorTest
     public TemporaryFolder tempFolder = new TemporaryFolder();
     public AutoCloseableRule closeables = new AutoCloseableRule();
 
+    public ActorSchedulerRule actorSchedulerRule = new ActorSchedulerRule();
+
     @Rule
-    public RuleChain ruleChain = RuleChain.outerRule(tempFolder).around(closeables);
+    public RuleChain ruleChain = RuleChain.outerRule(tempFolder).around(actorSchedulerRule).around(closeables);
 
     public BufferingServerOutput output;
 
@@ -99,10 +82,7 @@ public class CreateTopicStreamProcessorTest
     {
         output = new BufferingServerOutput();
 
-        final ActorScheduler scheduler = ActorSchedulerBuilder.createDefaultScheduler("foo");
-        closeables.manage(scheduler);
-
-        streams = new TestStreams(tempFolder.getRoot(), closeables, scheduler);
+        streams = new TestStreams(tempFolder.getRoot(), closeables, actorSchedulerRule.get());
         streams.createLogStream(STREAM_NAME);
 
         streams.newEvent(STREAM_NAME) // TODO: workaround for https://github.com/zeebe-io/zeebe/issues/478
@@ -131,7 +111,8 @@ public class CreateTopicStreamProcessorTest
                 partitionManager,
                 topicsIndex,
                 partitionsIndex,
-                CREATION_EXPIRATION);
+                CREATION_EXPIRATION,
+            () -> { });
     }
 
     @After
@@ -247,7 +228,7 @@ public class CreateTopicStreamProcessorTest
     }
 
     @Test
-    public void shouldResendPartitionRequestToSameBrokerOnRecovery() throws InterruptedException
+    public void shouldResendPartitionRequestToSameBrokerOnRecovery()
     {
         // given
         partitionManager.addMember(SOCKET_ADDRESS1);
@@ -291,7 +272,7 @@ public class CreateTopicStreamProcessorTest
     }
 
     @Test
-    public void shouldNotSendPartitionRequestToAnotherBrokerOnRecoveryIfOriginalBrokerNotAvailable() throws InterruptedException
+    public void shouldNotSendPartitionRequestToAnotherBrokerOnRecoveryIfOriginalBrokerNotAvailable()
     {
         // given
         partitionManager.addMember(SOCKET_ADDRESS1);
@@ -703,7 +684,7 @@ public class CreateTopicStreamProcessorTest
 
     @Test
     @Ignore("Requires fix for https://github.com/zeebe-io/zeebe/issues/478")
-    public void shouldGenerateUniquePartitionIdsAfterRestartWithoutSnapshot() throws InterruptedException
+    public void shouldGenerateUniquePartitionIdsAfterRestartWithoutSnapshot()
     {
         // given
         StreamProcessorControl processorControl = streams.runStreamProcessor(STREAM_NAME, streamProcessor);
@@ -810,10 +791,9 @@ public class CreateTopicStreamProcessorTest
         }
 
         @Override
-        public boolean createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
+        public void createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
         {
             partitionRequests.add(new PartitionRequest(remote, partitionId));
-            return true;
         }
 
         public List<PartitionRequest> getPartitionRequests()
@@ -843,11 +823,6 @@ public class CreateTopicStreamProcessorTest
         public int getPartitionId()
         {
             return partitionId;
-        }
-
-        public SocketAddress getEndpoint()
-        {
-            return endpoint;
         }
     }
 

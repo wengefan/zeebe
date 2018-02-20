@@ -59,7 +59,7 @@ public class TopicSubscriptionService extends ZbActor implements Service<TopicSu
 
     protected final ServiceGroupReference<LogStream> logStreamsGroupReference = ServiceGroupReference.<LogStream>create()
         .onAdd(this::onStreamAdded)
-        .onRemove(this::onStreamRemoved)
+        .onRemove((logStreamServiceName, logStream) -> onStreamRemoved(logStream))
         .build();
 
     public TopicSubscriptionService(ConfigurationManager configurationManager)
@@ -151,7 +151,7 @@ public class TopicSubscriptionService extends ZbActor implements Service<TopicSu
             StreamProcessor streamProcessor,
             MetadataFilter eventFilter)
     {
-        CompletableActorFuture<Void> completableActorFuture = new CompletableActorFuture<>();
+        final CompletableActorFuture<Void> completableActorFuture = new CompletableActorFuture<>();
         actor.call(() ->
         {
 
@@ -161,13 +161,13 @@ public class TopicSubscriptionService extends ZbActor implements Service<TopicSu
                 streamProcessor)
                 .eventFilter(eventFilter);
 
-            final ActorFuture<Void> installFuture = serviceContext.createService(processorName, streamProcessorService)
+            final CompletableFuture<Void> installFuture = serviceContext.createService(processorName, streamProcessorService)
                 .dependency(logStreamName, streamProcessorService.getLogStreamInjector())
                 .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
                 .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
                 .install();
 
-            actor.runOnCompletion(installFuture, (aVoid, throwable) ->
+            installFuture.whenComplete((aVoid, throwable) ->
             {
                 if (throwable == null)
                 {
@@ -183,7 +183,7 @@ public class TopicSubscriptionService extends ZbActor implements Service<TopicSu
         return completableActorFuture;
     }
 
-    public void onStreamRemoved(ServiceName<LogStream> logStreamServiceName, LogStream logStream)
+    public void onStreamRemoved(LogStream logStream)
     {
         actor.call(() -> managersByLog.remove(logStream.getPartitionId()));
     }

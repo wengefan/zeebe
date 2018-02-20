@@ -72,7 +72,8 @@ public class RaftService implements Service<Raft>
                 raft.addMembers(members);
 
                 final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-                actorScheduler.submitActor(raft);
+                // TODO submit raft
+//                actorScheduler.submitActor(raft);
             }
             else
             {

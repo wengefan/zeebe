@@ -25,7 +25,6 @@ import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.BufferingServerTransport;
 import io.zeebe.transport.Transports;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
 import org.slf4j.Logger;
 

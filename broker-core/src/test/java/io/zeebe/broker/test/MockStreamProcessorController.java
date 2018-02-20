@@ -17,9 +17,21 @@
  */
 package io.zeebe.broker.test;
 
-import static io.zeebe.protocol.clientapi.EventType.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import io.zeebe.logstreams.log.LogStreamReader;
+import io.zeebe.logstreams.log.LogStreamWriter;
+import io.zeebe.logstreams.log.LoggedEvent;
+import io.zeebe.logstreams.processor.EventProcessor;
+import io.zeebe.logstreams.processor.StreamProcessor;
+import io.zeebe.logstreams.processor.StreamProcessorContext;
+import io.zeebe.msgpack.UnpackedObject;
+import io.zeebe.protocol.clientapi.EventType;
+import io.zeebe.protocol.impl.BrokerEventMetadata;
+import io.zeebe.test.util.FluentAnswer;
+import io.zeebe.util.buffer.BufferReader;
+import io.zeebe.util.buffer.BufferWriter;
+import org.agrona.DirectBuffer;
+import org.agrona.concurrent.UnsafeBuffer;
+import org.junit.rules.ExternalResource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,29 +39,15 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-import io.zeebe.msgpack.UnpackedObject;
-import org.agrona.DirectBuffer;
-import org.agrona.concurrent.UnsafeBuffer;
-import io.zeebe.protocol.impl.BrokerEventMetadata;
-import io.zeebe.logstreams.log.LogStreamReader;
-import io.zeebe.logstreams.log.LogStreamWriter;
-import io.zeebe.logstreams.log.LoggedEvent;
-import io.zeebe.logstreams.processor.EventProcessor;
-import io.zeebe.logstreams.processor.StreamProcessor;
-import io.zeebe.logstreams.processor.StreamProcessorContext;
-import io.zeebe.protocol.clientapi.EventType;
-import io.zeebe.test.util.FluentAnswer;
-import io.zeebe.util.DeferredCommandContext;
-import io.zeebe.util.buffer.BufferReader;
-import io.zeebe.util.buffer.BufferWriter;
-import org.junit.rules.ExternalResource;
+import static io.zeebe.protocol.clientapi.EventType.NULL_VAL;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
 
 public class MockStreamProcessorController<T extends UnpackedObject> extends ExternalResource
 {
     protected LogStreamWriter mockLogStreamWriter;
     protected LogStreamReader mockLogStreamReader;
-
-    protected DeferredCommandContext cmdQueue;
 
     protected StreamProcessor streamProcessor;
     protected long position;
@@ -136,7 +134,6 @@ public class MockStreamProcessorController<T extends UnpackedObject> extends Ext
             return 1L;
         }).when(mockLogStreamWriter).tryWrite();
 
-        cmdQueue = new DeferredCommandContext(10);
     }
 
     protected void populate(BufferWriter writer, BufferReader reader)
@@ -162,7 +159,6 @@ public class MockStreamProcessorController<T extends UnpackedObject> extends Ext
     {
         this.streamProcessor = streamProcessor;
 
-        context.setStreamProcessorCmdQueue(cmdQueue);
         context.setLogStreamWriter(mockLogStreamWriter);
         context.setLogStreamReader(mockLogStreamReader);
 
@@ -235,14 +231,8 @@ public class MockStreamProcessorController<T extends UnpackedObject> extends Ext
         simulateStreamProcessorController(event);
     }
 
-    public void drainCommandQueue()
-    {
-        cmdQueue.doWork();
-    }
-
     protected void simulateStreamProcessorController(final LoggedEvent loggedEvent)
     {
-        drainCommandQueue();
 
         if (!streamProcessor.isSuspended())
         {

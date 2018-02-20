@@ -17,14 +17,6 @@
  */
 package io.zeebe.broker.clustering.management.memberList;
 
-import static io.zeebe.broker.clustering.management.memberList.GossipEventCreationHelper.*;
-import static io.zeebe.raft.state.RaftState.LEADER;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
-
 import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.handler.Topology;
 import io.zeebe.broker.clustering.management.ClusterManagerContext;
@@ -40,14 +32,19 @@ import io.zeebe.raft.state.RaftState;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.SocketAddress;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
-import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+
+import static io.zeebe.broker.clustering.management.memberList.GossipEventCreationHelper.*;
+import static io.zeebe.raft.state.RaftState.LEADER;
 
 public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStreamListener
 {

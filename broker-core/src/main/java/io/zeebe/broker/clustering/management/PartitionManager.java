@@ -27,7 +27,7 @@ import io.zeebe.transport.SocketAddress;
 public interface PartitionManager
 {
 
-    boolean createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId);
+    void createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId);
 
     Iterator<Member> getKnownMembers();
 

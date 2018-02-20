@@ -17,7 +17,23 @@
  */
 package io.zeebe.broker.topic;
 
-import static io.zeebe.test.util.TestUtil.doRepeatedly;
+import io.zeebe.broker.system.log.PartitionEvent;
+import io.zeebe.broker.system.log.TopicEvent;
+import io.zeebe.logstreams.LogStreams;
+import io.zeebe.logstreams.log.*;
+import io.zeebe.logstreams.processor.EventProcessor;
+import io.zeebe.logstreams.processor.StreamProcessor;
+import io.zeebe.logstreams.processor.StreamProcessorContext;
+import io.zeebe.logstreams.processor.StreamProcessorController;
+import io.zeebe.logstreams.spi.SnapshotStorage;
+import io.zeebe.logstreams.spi.SnapshotSupport;
+import io.zeebe.msgpack.UnpackedObject;
+import io.zeebe.protocol.Protocol;
+import io.zeebe.protocol.clientapi.EventType;
+import io.zeebe.protocol.impl.BrokerEventMetadata;
+import io.zeebe.test.util.AutoCloseableRule;
+import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.ZbActorScheduler;
 
 import java.io.File;
 import java.util.HashMap;
@@ -30,28 +46,7 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import io.zeebe.broker.system.log.PartitionEvent;
-import io.zeebe.broker.system.log.TopicEvent;
-import io.zeebe.logstreams.LogStreams;
-import io.zeebe.logstreams.log.BufferedLogStreamReader;
-import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.logstreams.log.LogStreamReader;
-import io.zeebe.logstreams.log.LogStreamWriter;
-import io.zeebe.logstreams.log.LogStreamWriterImpl;
-import io.zeebe.logstreams.log.LoggedEvent;
-import io.zeebe.logstreams.processor.EventProcessor;
-import io.zeebe.logstreams.processor.StreamProcessor;
-import io.zeebe.logstreams.processor.StreamProcessorContext;
-import io.zeebe.logstreams.processor.StreamProcessorController;
-import io.zeebe.logstreams.spi.SnapshotStorage;
-import io.zeebe.logstreams.spi.SnapshotSupport;
-import io.zeebe.msgpack.UnpackedObject;
-import io.zeebe.protocol.Protocol;
-import io.zeebe.protocol.clientapi.EventType;
-import io.zeebe.protocol.impl.BrokerEventMetadata;
-import io.zeebe.test.util.AutoCloseableRule;
-import io.zeebe.util.actor.ActorScheduler;
-import io.zeebe.util.buffer.BufferUtil;
+import static io.zeebe.test.util.TestUtil.doRepeatedly;
 
 public class TestStreams
 {
@@ -70,14 +65,14 @@ public class TestStreams
 
     protected Map<String, LogStream> managedLogs = new HashMap<>();
 
-    protected ActorScheduler actorScheduler;
+    protected ZbActorScheduler actorScheduler;
 
     protected SnapshotStorage snapshotStorage;
 
     public TestStreams(
-            File storageDirectory,
-            AutoCloseableRule closeables,
-            ActorScheduler actorScheduler)
+        File storageDirectory,
+        AutoCloseableRule closeables,
+        ZbActorScheduler actorScheduler)
     {
         this.storageDirectory = storageDirectory;
         this.closeables = closeables;
@@ -205,7 +200,7 @@ public class TestStreams
         @Override
         public void purgeSnapshot()
         {
-            snapshotStorage.purgeSnapshot(controller.name());
+            snapshotStorage.purgeSnapshot(controller.getName());
         }
 
 
@@ -230,7 +225,7 @@ public class TestStreams
         @Override
         public void close()
         {
-            if (!controller.isClosed())
+            if (controller.isOpened())
             {
                 try
                 {

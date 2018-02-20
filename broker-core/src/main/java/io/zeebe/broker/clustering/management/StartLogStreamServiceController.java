@@ -28,7 +28,6 @@ import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.sched.ZbActor;
-import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 
 import java.util.concurrent.CompletableFuture;

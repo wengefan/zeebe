@@ -17,8 +17,6 @@
  */
 package io.zeebe.broker.clustering.handler;
 
-import java.util.concurrent.CompletableFuture;
-
 import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.management.ClusterManager;
 import io.zeebe.broker.transport.clientapi.ErrorResponseWriter;
@@ -34,7 +32,6 @@ import org.agrona.DirectBuffer;
 
 public class RequestTopologyHandler implements ControlMessageHandler
 {
-
     protected final ClusterManager clusterManager;
     protected final ControlMessageResponseWriter responseWriter;
     protected final ErrorResponseWriter errorResponseWriter;
@@ -53,9 +50,10 @@ public class RequestTopologyHandler implements ControlMessageHandler
     }
 
     @Override
-    public CompletableFuture<Void> handle(int partitionId, final DirectBuffer buffer, final BrokerEventMetadata metadata)
+    public ActorFuture<Void> handle(int partitionId, final DirectBuffer buffer, final BrokerEventMetadata metadata)
     {
         // call cluster manager
+        final CompletableActorFuture<Void> completableFuture = new CompletableActorFuture<>();
         final ActorFuture<Topology> future = clusterManager.requestTopology();
 
         future.onComplete((topology, throwable) ->
@@ -72,6 +70,7 @@ public class RequestTopologyHandler implements ControlMessageHandler
                                        .failedRequest(buffer, 0, buffer.capacity())
                                        .tryWriteResponseOrLogFailure(metadata.getRequestStreamId(), metadata.getRequestId());
                 }
+                completableFuture.complete(null);
             }
             else
             {
@@ -81,8 +80,12 @@ public class RequestTopologyHandler implements ControlMessageHandler
                                    .failedRequest(buffer, 0, buffer.capacity())
                                    .tryWriteResponseOrLogFailure(metadata.getRequestStreamId(), metadata.getRequestId());
 
+                completableFuture.completeExceptionally(throwable);
+
             }
-        }));
+        });
+
+        return completableFuture;
     }
 
 }

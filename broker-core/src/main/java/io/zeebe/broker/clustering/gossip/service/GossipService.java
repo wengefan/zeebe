@@ -26,8 +26,6 @@ import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.BufferingServerTransport;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
-import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
 
 public class GossipService implements Service<Gossip>
@@ -60,8 +58,7 @@ public class GossipService implements Service<Gossip>
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        // TODO run close after leave is finished!
-        stopContext.async(gossip.leave());
+        stopContext.async(gossip.leave().onComplete((value, throwable) -> gossip.close()));
     }
 
     @Override

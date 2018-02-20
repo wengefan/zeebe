@@ -17,11 +17,6 @@
  */
 package io.zeebe.broker.task.processor;
 
-import static io.zeebe.protocol.clientapi.EventType.TASK_EVENT;
-import static org.agrona.BitUtil.SIZE_OF_LONG;
-
-import java.util.Iterator;
-
 import io.zeebe.broker.logstreams.processor.MetadataFilter;
 import io.zeebe.broker.task.data.TaskEvent;
 import io.zeebe.broker.task.data.TaskState;
@@ -39,11 +34,16 @@ import io.zeebe.map.iterator.Long2BytesZbMapEntry;
 import io.zeebe.protocol.Protocol;
 import io.zeebe.protocol.clientapi.EventType;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.time.ClockUtil;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
+
+import java.time.Duration;
+import java.util.Iterator;
+
+import static io.zeebe.protocol.clientapi.EventType.TASK_EVENT;
+import static org.agrona.BitUtil.SIZE_OF_LONG;
 
 public class TaskExpireLockStreamProcessor implements StreamProcessor
 {
@@ -57,8 +57,6 @@ public class TaskExpireLockStreamProcessor implements StreamProcessor
 
     protected Long2BytesZbMap expirationMap = new Long2BytesZbMap(MAP_VALUE_MAX_LENGTH);
     protected ZbMapSnapshotSupport<Long2BytesZbMap> mapSnapshotSupport = new ZbMapSnapshotSupport<>(expirationMap);
-
-    protected DeferredCommandContext cmdQueue;
 
     protected LogStreamReader logStreamReader;
     protected LogStreamWriter logStreamWriter;
@@ -84,7 +82,8 @@ public class TaskExpireLockStreamProcessor implements StreamProcessor
     public void onOpen(StreamProcessorContext context)
     {
         streamProcessorId = context.getId();
-        cmdQueue = context.getStreamProcessorCmdQueue();
+
+        context.getActorControl().runAtFixedRate(Duration.ofSeconds(30), checkLockExpirationCmd);
         logStreamReader = context.getLogStreamReader();
         logStreamWriter = context.getLogStreamWriter();
 
@@ -191,11 +190,6 @@ public class TaskExpireLockStreamProcessor implements StreamProcessor
             return lastWrittenEventPosition;
         }
 
-    }
-
-    public void checkLockExpirationAsync()
-    {
-        cmdQueue.runAsync(checkLockExpirationCmd);
     }
 
     class CheckLockExpirationCmd implements Runnable

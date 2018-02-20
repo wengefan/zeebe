@@ -17,14 +17,15 @@
  */
 package io.zeebe.broker.topic;
 
-import static io.zeebe.test.util.TestUtil.doRepeatedly;
-import static io.zeebe.test.util.TestUtil.waitUntil;
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-
+import io.zeebe.broker.logstreams.processor.TypedStreamEnvironment;
+import io.zeebe.broker.logstreams.processor.TypedStreamProcessor;
+import io.zeebe.broker.system.log.*;
+import io.zeebe.broker.transport.clientapi.BufferingServerOutput;
+import io.zeebe.test.util.AutoCloseableRule;
+import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.actor.ActorSchedulerBuilder;
+import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -32,20 +33,15 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
 
-import io.zeebe.broker.logstreams.processor.TypedStreamEnvironment;
-import io.zeebe.broker.logstreams.processor.TypedStreamProcessor;
-import io.zeebe.broker.system.log.PartitionEvent;
-import io.zeebe.broker.system.log.PartitionResponder;
-import io.zeebe.broker.system.log.PartitionState;
-import io.zeebe.broker.system.log.SystemPartitionManager;
-import io.zeebe.broker.system.log.TopicEvent;
-import io.zeebe.broker.system.log.TopicState;
-import io.zeebe.broker.transport.clientapi.BufferingServerOutput;
-import io.zeebe.test.util.AutoCloseableRule;
-import io.zeebe.util.actor.ActorScheduler;
-import io.zeebe.util.actor.ActorSchedulerBuilder;
-import io.zeebe.util.buffer.BufferUtil;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
+import static io.zeebe.test.util.TestUtil.doRepeatedly;
+import static io.zeebe.test.util.TestUtil.waitUntil;
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SuppressWarnings("unchecked")
 public class RequestPartitionsStreamProcessorTest
 {
     public static final String STREAM_NAME = "stream";
@@ -53,8 +49,10 @@ public class RequestPartitionsStreamProcessorTest
     public TemporaryFolder tempFolder = new TemporaryFolder();
     public AutoCloseableRule closeables = new AutoCloseableRule();
 
+    public ActorSchedulerRule actorSchedulerRule = new ActorSchedulerRule();
+
     @Rule
-    public RuleChain ruleChain = RuleChain.outerRule(tempFolder).around(closeables);
+    public RuleChain ruleChain = RuleChain.outerRule(tempFolder).around(actorSchedulerRule).around(closeables);
 
     public BufferingServerOutput output;
 
@@ -72,7 +70,7 @@ public class RequestPartitionsStreamProcessorTest
         final ActorScheduler scheduler = ActorSchedulerBuilder.createDefaultScheduler("foo");
         closeables.manage(scheduler);
 
-        streams = new TestStreams(tempFolder.getRoot(), closeables, scheduler);
+        streams = new TestStreams(tempFolder.getRoot(), closeables, actorSchedulerRule.get());
         streams.createLogStream(STREAM_NAME);
 
         rebuildStreamProcessor();

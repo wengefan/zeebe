@@ -17,19 +17,17 @@
  */
 package io.zeebe.broker.clustering.management.memberList;
 
-import java.util.Iterator;
-import java.util.concurrent.CompletableFuture;
-
 import io.zeebe.broker.Loggers;
-import io.zeebe.broker.clustering.handler.TopologyBroker;
 import io.zeebe.broker.clustering.handler.Topology;
+import io.zeebe.broker.clustering.handler.TopologyBroker;
 import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.msgpack.value.ValueArray;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.util.buffer.BufferUtil;
-import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
+
+import java.util.Iterator;
 
 public class TopologyCreator
 {

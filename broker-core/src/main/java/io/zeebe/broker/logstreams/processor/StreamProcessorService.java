@@ -23,7 +23,6 @@ import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.logstreams.processor.EventFilter;
 import io.zeebe.logstreams.processor.StreamProcessor;
 import io.zeebe.logstreams.processor.StreamProcessorController;
-import io.zeebe.logstreams.snapshot.TimeBasedSnapshotPolicy;
 import io.zeebe.logstreams.spi.SnapshotStorage;
 import io.zeebe.protocol.Protocol;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
@@ -31,7 +30,6 @@ import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
 import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.servicecontainer.ServiceStopContext;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
 
 import java.time.Duration;

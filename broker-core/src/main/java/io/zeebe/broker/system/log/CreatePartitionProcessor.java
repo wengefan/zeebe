@@ -70,7 +70,8 @@ public class CreatePartitionProcessor implements TypedEventProcessor<PartitionEv
         creatorAddress.host(creatorHost, 0, creatorHost.capacity());
         creatorAddress.port(creator.getPort());
 
-        return partitionManager.createPartitionRemote(creatorAddress, value.getTopicName(), value.getId());
+        partitionManager.createPartitionRemote(creatorAddress, value.getTopicName(), value.getId());
+        return true;
     }
 
     @Override

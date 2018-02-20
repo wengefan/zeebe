@@ -17,21 +17,16 @@
  */
 package io.zeebe.broker.task;
 
-import java.util.concurrent.CompletableFuture;
-
 import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.servicecontainer.Injector;
-import io.zeebe.servicecontainer.Service;
-import io.zeebe.servicecontainer.ServiceGroupReference;
-import io.zeebe.servicecontainer.ServiceStartContext;
-import io.zeebe.servicecontainer.ServiceStopContext;
+import io.zeebe.servicecontainer.*;
 import io.zeebe.transport.ServerTransport;
 import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActorScheduler;
+import io.zeebe.util.sched.future.ActorFuture;
 
 public class TaskSubscriptionManagerService implements Service<TaskSubscriptionManager>
 {
-    protected final Injector<ActorScheduler> actorSchedulerInjector = new Injector<>();
+    protected final Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     protected final Injector<ServerTransport> transportInjector = new Injector<>();
 
     protected TaskSubscriptionManager service;
@@ -45,12 +40,12 @@ public class TaskSubscriptionManagerService implements Service<TaskSubscriptionM
     @Override
     public void start(ServiceStartContext startContext)
     {
-        final ActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+        final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
         service = new TaskSubscriptionManager(startContext);
-        actorRef = actorScheduler.schedule(service);
+        actorScheduler.submitActor(service);
 
         final ServerTransport clientApiTransport = transportInjector.getValue();
-        final CompletableFuture<Void> transportRegistration = clientApiTransport.registerChannelListener(service);
+        final ActorFuture<Void> transportRegistration = clientApiTransport.registerChannelListener(service);
         startContext.async(transportRegistration);
     }
 
@@ -66,7 +61,7 @@ public class TaskSubscriptionManagerService implements Service<TaskSubscriptionM
         return service;
     }
 
-    public Injector<ActorScheduler> getActorSchedulerInjector()
+    public Injector<ZbActorScheduler> getActorSchedulerInjector()
     {
         return actorSchedulerInjector;
     }

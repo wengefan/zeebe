@@ -28,6 +28,7 @@ import io.zeebe.broker.system.deployment.data.TopicPartitions.TopicPartitionIter
 import io.zeebe.broker.system.deployment.handler.WorkflowRequestMessageSender;
 import io.zeebe.broker.workflow.data.WorkflowEvent;
 import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.ActorControl;
 import org.agrona.DirectBuffer;
 import org.agrona.collections.IntArrayList;
 
@@ -38,6 +39,7 @@ public class WorkflowCreateProcessor implements TypedEventProcessor<WorkflowEven
     private final PendingWorkflows pendingWorkflows;
 
     private final WorkflowRequestMessageSender workflowRequestSender;
+    private ActorControl actor;
 
     private final IntArrayList partitionIds = new IntArrayList();
 
@@ -51,6 +53,12 @@ public class WorkflowCreateProcessor implements TypedEventProcessor<WorkflowEven
         this.pendingDeployments = pendingDeployments;
         this.pendingWorkflows = pendingWorkflows;
         this.workflowRequestSender = workflowRequestSender;
+    }
+
+    @Override
+    public void onOpen(TypedStreamProcessor streamProcessor)
+    {
+        actor = streamProcessor.getActor();
     }
 
     @Override

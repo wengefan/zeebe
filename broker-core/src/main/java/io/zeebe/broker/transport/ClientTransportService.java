@@ -17,8 +17,6 @@
  */
 package io.zeebe.broker.transport;
 
-import java.util.Collection;
-
 import io.zeebe.dispatcher.Dispatcher;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
@@ -28,8 +26,9 @@ import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.ClientTransportBuilder;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.transport.Transports;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
+
+import java.util.Collection;
 
 public class ClientTransportService implements Service<ClientTransport>
 {

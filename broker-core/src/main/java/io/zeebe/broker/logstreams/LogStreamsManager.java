@@ -27,7 +27,6 @@ import org.agrona.collections.Int2ObjectHashMap;
 
 import java.io.File;
 import java.util.Random;
-import java.util.function.Consumer;
 
 import static io.zeebe.util.EnsureUtil.*;
 
@@ -44,13 +43,6 @@ public class LogStreamsManager
         this.actorScheduler = actorScheduler;
         this.logStreams = new Int2ObjectHashMap<>();
     }
-
-    public void forEachLogStream(Consumer<LogStream> consumer)
-    {
-        // TODO(menski): probably not garbage free
-        logStreams.forEach((partitionId, partition) -> consumer.accept(partition));
-    }
-
 
     public LogStream getLogStream(final int partitionId)
     {

@@ -17,19 +17,16 @@
  */
 package io.zeebe.broker.event.processor;
 
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-
-import io.zeebe.protocol.Protocol;
-import io.zeebe.util.actor.Actor;
-import io.zeebe.util.sched.future.ActorFuture;
-import org.agrona.DirectBuffer;
-
-import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.logstreams.log.LogStreamWriter;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.logstreams.processor.EventProcessor;
+import io.zeebe.protocol.Protocol;
+import io.zeebe.protocol.impl.BrokerEventMetadata;
+import io.zeebe.util.sched.future.ActorFuture;
+import org.agrona.DirectBuffer;
+
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 
 public class SubscribeProcessor implements EventProcessor
 {

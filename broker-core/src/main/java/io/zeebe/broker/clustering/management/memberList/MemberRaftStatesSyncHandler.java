@@ -17,21 +17,20 @@
  */
 package io.zeebe.broker.clustering.management.memberList;
 
-import static io.zeebe.broker.clustering.management.memberList.GossipEventCreationHelper.writeRaftsIntoBuffer;
-
-import java.util.Iterator;
-import java.util.List;
-
 import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.management.ClusterManagerContext;
 import io.zeebe.gossip.GossipSyncRequestHandler;
 import io.zeebe.gossip.dissemination.GossipSyncRequest;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
+
+import java.util.Iterator;
+import java.util.List;
+
+import static io.zeebe.broker.clustering.management.memberList.GossipEventCreationHelper.writeRaftsIntoBuffer;
 
 public final class MemberRaftStatesSyncHandler implements GossipSyncRequestHandler
 {

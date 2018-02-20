@@ -17,15 +17,6 @@
  */
 package io.zeebe.broker.task.processor;
 
-import static io.zeebe.protocol.clientapi.EventType.TASK_EVENT;
-import static io.zeebe.util.EnsureUtil.ensureGreaterThan;
-import static io.zeebe.util.EnsureUtil.ensureLessThanOrEqual;
-import static io.zeebe.util.EnsureUtil.ensureNotNull;
-
-import java.util.concurrent.CompletableFuture;
-
-import org.agrona.DirectBuffer;
-
 import io.zeebe.broker.logstreams.processor.MetadataFilter;
 import io.zeebe.broker.logstreams.processor.NoopSnapshotSupport;
 import io.zeebe.broker.task.CreditsRequest;
@@ -45,16 +36,21 @@ import io.zeebe.logstreams.spi.SnapshotSupport;
 import io.zeebe.protocol.Protocol;
 import io.zeebe.protocol.clientapi.EventType;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.buffer.BufferUtil;
+import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.time.ClockUtil;
+import org.agrona.DirectBuffer;
+
+import java.util.concurrent.CompletableFuture;
+
+import static io.zeebe.protocol.clientapi.EventType.TASK_EVENT;
+import static io.zeebe.util.EnsureUtil.*;
 
 public class LockTaskStreamProcessor implements StreamProcessor, EventProcessor
 {
     protected final BrokerEventMetadata targetEventMetadata = new BrokerEventMetadata();
 
     protected final NoopSnapshotSupport noopSnapshotSupport = new NoopSnapshotSupport();
-    protected DeferredCommandContext cmdQueue;
     protected CreditsRequestBuffer creditsBuffer = new CreditsRequestBuffer(TaskSubscriptionManager.NUM_CONCURRENT_REQUESTS, this::increaseSubscriptionCredits);
 
     protected final TaskSubscriptions subscriptions = new TaskSubscriptions(8);
@@ -75,6 +71,7 @@ public class LockTaskStreamProcessor implements StreamProcessor, EventProcessor
 
     // activate the processor while adding the first subscription
     protected boolean isSuspended = true;
+    private ActorControl actor;
 
     public LockTaskStreamProcessor(DirectBuffer taskType)
     {
@@ -111,12 +108,11 @@ public class LockTaskStreamProcessor implements StreamProcessor, EventProcessor
     @Override
     public void onOpen(StreamProcessorContext context)
     {
-        cmdQueue = context.getStreamProcessorCmdQueue();
-
         final LogStream logStream = context.getLogStream();
         logStreamPartitionId = logStream.getPartitionId();
 
         targetStream = logStream;
+        actor = context.getActorControl();
     }
 
     public CompletableFuture<Void> addSubscription(TaskSubscription subscription)
@@ -135,30 +131,35 @@ public class LockTaskStreamProcessor implements StreamProcessor, EventProcessor
             throw new RuntimeException(errorMessage);
         }
 
-        return cmdQueue.runAsync(future ->
+        final CompletableFuture<Void> completableFuture = new CompletableFuture<>();
+        actor.call(() ->
         {
             subscriptions.addSubscription(subscription);
 
             isSuspended = false;
 
-            future.complete(null);
+            completableFuture.complete(null);
         });
+        return completableFuture;
     }
 
     public CompletableFuture<Boolean> removeSubscription(long subscriberKey)
     {
-        return cmdQueue.runAsync(future ->
+        final CompletableFuture<Boolean> completableFuture = new CompletableFuture<>();
+        actor.call(() ->
         {
             subscriptions.removeSubscription(subscriberKey);
             isSuspended = subscriptions.isEmpty();
 
-            future.complete(!isSuspended);
+            completableFuture.complete(!isSuspended);
         });
+        return completableFuture;
     }
 
     public CompletableFuture<Boolean> onClientChannelCloseAsync(int channelId)
     {
-        return cmdQueue.runAsync(future ->
+        final CompletableFuture<Boolean> completableFuture = new CompletableFuture<>();
+        actor.call(() ->
         {
             managementIterator.reset();
 
@@ -173,8 +174,9 @@ public class LockTaskStreamProcessor implements StreamProcessor, EventProcessor
 
             isSuspended = subscriptions.isEmpty();
 
-            future.complete(!isSuspended);
+            completableFuture.complete(!isSuspended);
         });
+        return completableFuture;
     }
 
     public boolean increaseSubscriptionCreditsAsync(CreditsRequest request)

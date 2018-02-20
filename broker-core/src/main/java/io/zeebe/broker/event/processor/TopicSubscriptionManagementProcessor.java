@@ -17,13 +17,6 @@
  */
 package io.zeebe.broker.event.processor;
 
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-
-import java.util.Iterator;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
-
 import io.zeebe.broker.event.TopicSubscriptionServiceNames;
 import io.zeebe.broker.logstreams.processor.MetadataFilter;
 import io.zeebe.broker.logstreams.processor.StreamProcessorIds;
@@ -47,11 +40,17 @@ import io.zeebe.protocol.clientapi.EventType;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.servicecontainer.ServiceStartContext;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
+
+import java.util.Iterator;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
+
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
 
 public class TopicSubscriptionManagementProcessor implements StreamProcessor
 {
@@ -248,7 +247,7 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
             int prefetchCapacity)
     {
 
-        CompletableActorFuture<TopicSubscriptionPushProcessor> future = new CompletableActorFuture<>();
+        final CompletableActorFuture<TopicSubscriptionPushProcessor> future = new CompletableActorFuture<>();
         actor.call(() ->
         {
 
@@ -269,13 +268,13 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
                 .eventFilter(TopicSubscriptionPushProcessor.eventFilter())
                 .readOnly(true);
 
-            final ActorFuture<Void> installFuture = serviceContext.createService(serviceName, streamProcessorService)
+            final CompletableFuture<Void> installFuture = serviceContext.createService(serviceName, streamProcessorService)
                 .dependency(streamServiceName, streamProcessorService.getLogStreamInjector())
                 .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
                 .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
                 .install();
 
-            actor.runOnCompletion(installFuture, (aVoid, throwable) ->
+            installFuture.whenComplete((aVoid, throwable) ->
             {
                 future.complete(processor);
             });

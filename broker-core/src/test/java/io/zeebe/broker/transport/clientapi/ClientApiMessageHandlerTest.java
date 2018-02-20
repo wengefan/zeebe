@@ -17,6 +17,36 @@
  */
 package io.zeebe.broker.transport.clientapi;
 
+import io.zeebe.broker.task.data.TaskEvent;
+import io.zeebe.broker.task.data.TaskState;
+import io.zeebe.broker.transport.controlmessage.ControlMessageRequestHeaderDescriptor;
+import io.zeebe.dispatcher.ClaimedFragment;
+import io.zeebe.dispatcher.Dispatcher;
+import io.zeebe.logstreams.LogStreams;
+import io.zeebe.logstreams.log.BufferedLogStreamReader;
+import io.zeebe.logstreams.log.LogStream;
+import io.zeebe.logstreams.log.LoggedEvent;
+import io.zeebe.protocol.Protocol;
+import io.zeebe.protocol.clientapi.*;
+import io.zeebe.protocol.impl.BrokerEventMetadata;
+import io.zeebe.transport.RemoteAddress;
+import io.zeebe.transport.SocketAddress;
+import io.zeebe.transport.impl.RemoteAddressImpl;
+import io.zeebe.util.sched.testing.ControlledActorSchedulerRule;
+import org.agrona.DirectBuffer;
+import org.agrona.concurrent.UnsafeBuffer;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.stubbing.Answer;
+
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+
 import static io.zeebe.dispatcher.impl.log.DataFrameDescriptor.alignedFramedLength;
 import static io.zeebe.util.VarDataUtil.readBytes;
 import static io.zeebe.util.buffer.BufferUtil.wrapString;
@@ -25,32 +55,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-
-import io.zeebe.broker.task.data.TaskEvent;
-import io.zeebe.broker.task.data.TaskState;
-import io.zeebe.broker.transport.controlmessage.ControlMessageRequestHeaderDescriptor;
-import io.zeebe.dispatcher.ClaimedFragment;
-import io.zeebe.dispatcher.Dispatcher;
-import io.zeebe.logstreams.LogStreams;
-import io.zeebe.logstreams.log.*;
-import io.zeebe.protocol.Protocol;
-import io.zeebe.protocol.clientapi.*;
-import io.zeebe.protocol.impl.BrokerEventMetadata;
-import io.zeebe.test.util.agent.ManualActorScheduler;
-import io.zeebe.transport.RemoteAddress;
-import io.zeebe.transport.SocketAddress;
-import io.zeebe.transport.impl.RemoteAddressImpl;
-
-import org.agrona.DirectBuffer;
-import org.agrona.concurrent.UnsafeBuffer;
-import org.junit.*;
-import org.junit.rules.TemporaryFolder;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.stubbing.Answer;
 
 public class ClientApiMessageHandlerTest
 {
@@ -95,7 +99,8 @@ public class ClientApiMessageHandlerTest
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     @Rule
-    public ManualActorScheduler agentRunnerService = new ManualActorScheduler();
+    public ControlledActorSchedulerRule agentRunnerService = new ControlledActorSchedulerRule();
+
 
     protected BufferingServerOutput serverOutput;
 
@@ -108,7 +113,7 @@ public class ClientApiMessageHandlerTest
 
         logStream = LogStreams.createFsLogStream(LOG_STREAM_TOPIC_NAME, LOG_STREAM_PARTITION_ID)
             .logRootPath(tempFolder.getRoot().getAbsolutePath())
-            .actorScheduler(agentRunnerService)
+            .actorScheduler(agentRunnerService.get())
             .build();
 
         logStream.openAsync();
@@ -118,7 +123,7 @@ public class ClientApiMessageHandlerTest
         messageHandler.addStream(logStream);
         logStream.setTerm(RAFT_TERM);
 
-        agentRunnerService.waitUntilDone();
+        agentRunnerService.workUntilDone();
     }
 
     @After
@@ -126,7 +131,7 @@ public class ClientApiMessageHandlerTest
     {
         logStream.closeAsync();
 
-        agentRunnerService.waitUntilDone();
+        agentRunnerService.workUntilDone();
     }
 
     @Test
@@ -205,7 +210,7 @@ public class ClientApiMessageHandlerTest
     }
 
     @Test
-    public void shouldHandleControlRequest() throws InterruptedException, ExecutionException
+    public void shouldHandleControlRequest()
     {
         // given
         final int writtenLength = writeControlRequestToBuffer(buffer);
@@ -402,7 +407,7 @@ public class ClientApiMessageHandlerTest
 
             fragmentOffset = claimedFragment.getOffset();
 
-            claimedFragment.wrap(sendBuffer, 0, alignedFramedLength(length));
+            claimedFragment.wrap(sendBuffer, 0, alignedFramedLength(length), () -> { });
 
             final long claimedPosition = offset + alignedFramedLength(length);
             return claimedPosition;
@@ -411,7 +416,8 @@ public class ClientApiMessageHandlerTest
 
     protected void waitForAvailableEvent(BufferedLogStreamReader logStreamReader)
     {
-        agentRunnerService.waitUntilDone();
+        agentRunnerService.workUntilDone();
+        agentRunnerService.workUntilDone();
 
         while (!logStreamReader.hasNext())
         {
