@@ -31,6 +31,8 @@ import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.future.ActorFuture;
 import org.agrona.DirectBuffer;
 
+import java.util.concurrent.CompletableFuture;
+
 import static io.zeebe.broker.clustering.ClusterServiceNames.CLUSTER_MANAGER_SERVICE;
 import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
 import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
@@ -74,7 +76,7 @@ public class StartLogStreamServiceController extends ZbActor
             LogStreamServiceNames.SYSTEM_STREAM_GROUP :
             LogStreamServiceNames.WORKFLOW_STREAM_GROUP;
 
-        final ActorFuture<Void> future =
+        final CompletableFuture<Void> future =
             serviceContainer
                 .createService(serviceName, service)
                 .dependency(ACTOR_SCHEDULER_SERVICE)
@@ -83,11 +85,14 @@ public class StartLogStreamServiceController extends ZbActor
                 .group(streamGroup)
                 .install();
 
-        actor.runOnCompletion(future, (v, throwable) ->
+        future.whenComplete((v, throwable) ->
         {
-            onOpenCallback.onOpenLogStreamService(raft.getLogStream());
+            actor.call(() ->
+            {
+                onOpenCallback.onOpenLogStreamService(raft.getLogStream());
 
-            raft.registerRaftStateListener(onFollowerListener);
+                raft.registerRaftStateListener(onFollowerListener);
+            });
         });
     }
 
@@ -103,15 +108,18 @@ public class StartLogStreamServiceController extends ZbActor
 
                     if (serviceContainer.hasService(serviceName))
                     {
-                        final ActorFuture<Void> future = serviceContainer.removeService(serviceName);
+                        final CompletableFuture<Void> future = serviceContainer.removeService(serviceName);
 
-                        actor.runOnCompletion(future, (aVoid, throwable) ->
+                        future.whenComplete((aVoid, throwable) ->
                         {
-                            // remove follower listener
-                            raft.removeRaftStateListener(onFollowerListener);
+                            actor.call(() ->
+                            {
+                                // remove follower listener
+                                raft.removeRaftStateListener(onFollowerListener);
 
-                            // add leader listener
-                            raft.registerRaftStateListener(onLeaderListener);
+                                // add leader listener
+                                raft.registerRaftStateListener(onLeaderListener);
+                            });
                         });
                     }
                 });

@@ -28,6 +28,8 @@ import io.zeebe.protocol.clientapi.ControlMessageType;
 import io.zeebe.protocol.clientapi.ErrorCode;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.transport.ServerOutput;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 
 public class RequestTopologyHandler implements ControlMessageHandler
@@ -54,8 +56,9 @@ public class RequestTopologyHandler implements ControlMessageHandler
     public CompletableFuture<Void> handle(int partitionId, final DirectBuffer buffer, final BrokerEventMetadata metadata)
     {
         // call cluster manager
-        final CompletableFuture<Topology> future = clusterManager.requestTopology();
-        return future.handle(((topology, throwable) ->
+        final ActorFuture<Topology> future = clusterManager.requestTopology();
+
+        future.onComplete((topology, throwable) ->
         {
             if (throwable == null)
             {
@@ -79,9 +82,6 @@ public class RequestTopologyHandler implements ControlMessageHandler
                                    .tryWriteResponseOrLogFailure(metadata.getRequestStreamId(), metadata.getRequestId());
 
             }
-
-
-            return null;
         }));
     }
 

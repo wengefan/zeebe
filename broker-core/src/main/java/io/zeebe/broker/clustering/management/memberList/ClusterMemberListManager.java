@@ -44,6 +44,7 @@ import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.Logger;
@@ -116,6 +117,7 @@ public class ClusterMemberListManager implements RaftStateListener, OnOpenLogStr
     public ActorFuture<Topology> createTopology()
     {
         return actor.call(topologyCreator::createTopology);
+
     }
 
     private class MembershipListener implements GossipMembershipListener

@@ -17,31 +17,28 @@
  */
 package io.zeebe.broker.logstreams;
 
-import static io.zeebe.util.EnsureUtil.ensureGreaterThanOrEqual;
-import static io.zeebe.util.EnsureUtil.ensureLessThanOrEqual;
-import static io.zeebe.util.EnsureUtil.ensureNotNullOrEmpty;
+import io.zeebe.broker.logstreams.cfg.LogStreamsCfg;
+import io.zeebe.logstreams.LogStreams;
+import io.zeebe.logstreams.fs.FsLogStreamBuilder;
+import io.zeebe.logstreams.log.LogStream;
+import io.zeebe.util.sched.ZbActorScheduler;
+import org.agrona.DirectBuffer;
+import org.agrona.collections.Int2ObjectHashMap;
 
 import java.io.File;
 import java.util.Random;
 import java.util.function.Consumer;
 
-import org.agrona.DirectBuffer;
-import org.agrona.collections.Int2ObjectHashMap;
-
-import io.zeebe.broker.logstreams.cfg.LogStreamsCfg;
-import io.zeebe.logstreams.LogStreams;
-import io.zeebe.logstreams.fs.FsLogStreamBuilder;
-import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.util.actor.ActorScheduler;
+import static io.zeebe.util.EnsureUtil.*;
 
 
 public class LogStreamsManager
 {
     protected LogStreamsCfg logStreamsCfg;
-    protected ActorScheduler actorScheduler;
+    protected ZbActorScheduler actorScheduler;
     protected Int2ObjectHashMap<LogStream> logStreams;
 
-    public LogStreamsManager(final LogStreamsCfg logStreamsCfg, final ActorScheduler actorScheduler)
+    public LogStreamsManager(final LogStreamsCfg logStreamsCfg, final ZbActorScheduler actorScheduler)
     {
         this.logStreamsCfg = logStreamsCfg;
         this.actorScheduler = actorScheduler;
