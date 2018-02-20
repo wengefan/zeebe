@@ -17,9 +17,7 @@
  */
 package io.zeebe.broker.clustering.raft;
 
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
+import io.zeebe.broker.Loggers;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.raft.Raft;
 import io.zeebe.raft.RaftPersistentStorage;
@@ -31,9 +29,9 @@ import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.BufferingServerTransport;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
-import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
 import io.zeebe.util.sched.ZbActorScheduler;
+
+import java.util.List;
 
 public class RaftService implements Service<Raft>
 {
@@ -62,17 +60,24 @@ public class RaftService implements Service<Raft>
     public void start(final ServiceStartContext startContext)
     {
 
-        logStream.openAsync().block(() ->
+        logStream.openAsync().onComplete((value, throwable) ->
         {
-            final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
-            final ClientTransport clientTransport = clientTransportInjector.getValue();
-            raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
-            raft.registerRaftStateListener(raftStateListener);
+            if (throwable == null)
+            {
+                final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
+                final ClientTransport clientTransport = clientTransportInjector.getValue();
+                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
+                raft.registerRaftStateListener(raftStateListener);
 
-            raft.addMembers(members);
+                raft.addMembers(members);
 
-            final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-            actorScheduler.submitActor(raft);
+                final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+                actorScheduler.submitActor(raft);
+            }
+            else
+            {
+                Loggers.CLUSTERING_LOGGER.debug("Failed to open log stream.");
+            }
         });
 //
 //        final CompletableFuture<Void> startFuture =
@@ -95,9 +100,11 @@ public class RaftService implements Service<Raft>
     @Override
     public void stop(final ServiceStopContext stopContext)
     {
-        // TODO chain futures
         raft.close();
-        logStream.closeLogStreamController().block(() -> logStream.closeAsync());
+        logStream.closeLogStreamController().onComplete((value, throwable) ->
+        {
+            logStream.closeAsync();
+        });
     }
 
     @Override

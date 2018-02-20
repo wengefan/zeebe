@@ -17,13 +17,6 @@
  */
 package io.zeebe.broker.workflow;
 
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
-import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.INCIDENT_PROCESSOR_ID;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-import static io.zeebe.broker.workflow.WorkflowQueueServiceNames.incidentStreamProcessorServiceName;
-import static io.zeebe.broker.workflow.WorkflowQueueServiceNames.workflowInstanceStreamProcessorServiceName;
-
 import io.zeebe.broker.incident.processor.IncidentStreamProcessor;
 import io.zeebe.broker.logstreams.processor.StreamProcessorIds;
 import io.zeebe.broker.logstreams.processor.StreamProcessorService;
@@ -35,31 +28,41 @@ import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.processor.StreamProcessorController;
 import io.zeebe.servicecontainer.*;
 import io.zeebe.transport.ServerTransport;
-import io.zeebe.util.DeferredCommandContext;
 import io.zeebe.util.EnsureUtil;
-import io.zeebe.util.actor.*;
+import io.zeebe.util.sched.ZbActor;
+import io.zeebe.util.sched.ZbActorScheduler;
 
-public class WorkflowQueueManagerService implements Service<WorkflowQueueManager>, WorkflowQueueManager, Actor
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
+import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.INCIDENT_PROCESSOR_ID;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
+import static io.zeebe.broker.workflow.WorkflowQueueServiceNames.incidentStreamProcessorServiceName;
+import static io.zeebe.broker.workflow.WorkflowQueueServiceNames.workflowInstanceStreamProcessorServiceName;
+
+public class WorkflowQueueManagerService extends ZbActor implements Service<WorkflowQueueManager>, WorkflowQueueManager
 {
     protected static final String NAME = "workflow.queue.manager";
 
     protected final Injector<ServerTransport> clientApiTransportInjector = new Injector<>();
     private final Injector<ServerTransport> managementServerInjector = new Injector<>();
-    protected final Injector<ActorScheduler> actorSchedulerInjector = new Injector<>();
+    protected final Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
 
     protected final ServiceGroupReference<LogStream> logStreamsGroupReference = ServiceGroupReference.<LogStream>create()
             .onAdd((name, stream) -> addStream(stream, name))
             .build();
 
     protected ServiceStartContext serviceContext;
-    protected DeferredCommandContext asyncContext;
     protected WorkflowCfg workflowCfg;
-
-    protected ActorReference actorRef;
 
     public WorkflowQueueManagerService(final ConfigurationManager configurationManager)
     {
         workflowCfg = configurationManager.readEntry("workflow", WorkflowCfg.class);
+    }
+
+    @Override
+    protected void onActorStarted()
+    {
+        actor.onCondition("alive", () -> { });
     }
 
     @Override
@@ -128,19 +131,15 @@ public class WorkflowQueueManagerService implements Service<WorkflowQueueManager
     public void start(ServiceStartContext serviceContext)
     {
         this.serviceContext = serviceContext;
-        this.asyncContext = new DeferredCommandContext();
 
-        final ActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-        actorRef = actorScheduler.schedule(this);
+        final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+        actorScheduler.submitActor(this);
     }
 
     @Override
-    public void stop(ServiceStopContext ctx)
+    public void stop(ServiceStopContext stopContext)
     {
-        ctx.run(() ->
-        {
-            actorRef.close();
-        });
+        actor.close();
     }
 
     @Override
@@ -159,7 +158,7 @@ public class WorkflowQueueManagerService implements Service<WorkflowQueueManager
         return logStreamsGroupReference;
     }
 
-    public Injector<ActorScheduler> getActorSchedulerInjector()
+    public Injector<ZbActorScheduler> getActorSchedulerInjector()
     {
         return actorSchedulerInjector;
     }
@@ -171,26 +170,14 @@ public class WorkflowQueueManagerService implements Service<WorkflowQueueManager
 
     public void addStream(LogStream logStream, ServiceName<LogStream> logStreamServiceName)
     {
-        asyncContext.runAsync((r) ->
+        actor.call(() ->
         {
             startWorkflowQueue(logStream);
         });
     }
 
     @Override
-    public int getPriority(long now)
-    {
-        return PRIORITY_LOW;
-    }
-
-    @Override
-    public int doWork() throws Exception
-    {
-        return asyncContext.doWork();
-    }
-
-    @Override
-    public String name()
+    public String getName()
     {
         return NAME;
     }
