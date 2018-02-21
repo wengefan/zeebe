@@ -49,7 +49,7 @@ public class PartitionManagerImpl implements PartitionManager
     }
 
     @Override
-    public void createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
+    public ActorFuture<ClientRequest> createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
     {
         final DirectBuffer nameBuffer = BufferUtil.cloneBuffer(topicName);
 
@@ -61,9 +61,7 @@ public class PartitionManagerImpl implements PartitionManager
 
         Loggers.SYSTEM_LOGGER.info("Creating partition {}/{} at {}", BufferUtil.bufferAsString(topicName), partitionId, remote);
 
-        final ActorFuture<ClientRequest> clientRequestActorFuture = transport.getOutput().sendRequestWithRetry(remoteAddress, messageWriter);
-        clientRequestActorFuture.onComplete((request, throwable) -> request.close());
-
+        return transport.getOutput().sendRequestWithRetry(remoteAddress, messageWriter);
     }
 
     /*

@@ -29,23 +29,30 @@ import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.BufferingServerTransport;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
+import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.ZbActorScheduler;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
 import java.util.List;
 
 public class RaftService implements Service<Raft>
 {
-
     private final SocketAddress socketAddress;
     private final LogStream logStream;
     private final List<SocketAddress> members;
     private final RaftPersistentStorage persistentStorage;
     private final RaftStateListener raftStateListener;
+    private final LogStreamOpenActor logStreamOpenActor;
+    private final LogStreamCloseActor logStreamCloseActor;
+
     private Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     private Injector<BufferingServerTransport> serverTransportInjector = new Injector<>();
     private Injector<ClientTransport> clientTransportInjector = new Injector<>();
-
     private Raft raft;
+
+    private CompletableActorFuture<Void> raftServiceCloseFuture;
+
 
     public RaftService(final SocketAddress socketAddress, final LogStream logStream, final List<SocketAddress> members, final RaftPersistentStorage persistentStorage, RaftStateListener raftStateListener)
     {
@@ -54,58 +61,27 @@ public class RaftService implements Service<Raft>
         this.members = members;
         this.persistentStorage = persistentStorage;
         this.raftStateListener = raftStateListener;
+        this.logStreamOpenActor = new LogStreamOpenActor();
+        this.logStreamCloseActor = new LogStreamCloseActor();
     }
 
+    private CompletableActorFuture<Void> raftServiceOpenFuture;
     @Override
     public void start(final ServiceStartContext startContext)
     {
+        raftServiceOpenFuture = new CompletableActorFuture<>();
+        startContext.getScheduler().submitActor(logStreamOpenActor);
 
-        logStream.openAsync().onComplete((value, throwable) ->
-        {
-            if (throwable == null)
-            {
-                final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
-                final ClientTransport clientTransport = clientTransportInjector.getValue();
-                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
-                raft.registerRaftStateListener(raftStateListener);
-
-                raft.addMembers(members);
-
-                final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-                // TODO submit raft
-//                actorScheduler.submitActor(raft);
-            }
-            else
-            {
-                Loggers.CLUSTERING_LOGGER.debug("Failed to open log stream.");
-            }
-        });
-//
-//        final CompletableFuture<Void> startFuture =
-//            logStream.openAsync().thenAccept(v ->
-//            {
-//                final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
-//                final ClientTransport clientTransport = clientTransportInjector.getValue();
-//                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
-//                raft.registerRaftStateListener(raftStateListener);
-//
-//                raft.addMembers(members);
-//
-//                final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-//                actorScheduler.submitActor(raft);
-//            });
-
-//        startContext.async(startFuture);
+        startContext.async(raftServiceOpenFuture);
     }
 
     @Override
     public void stop(final ServiceStopContext stopContext)
     {
-        raft.close();
-        logStream.closeLogStreamController().onComplete((value, throwable) ->
-        {
-            logStream.closeAsync();
-        });
+        raftServiceCloseFuture = new CompletableActorFuture<>();
+        actorSchedulerInjector.getValue().submitActor(logStreamCloseActor);
+
+        stopContext.async(raftServiceCloseFuture);
     }
 
     @Override
@@ -129,4 +105,50 @@ public class RaftService implements Service<Raft>
         return clientTransportInjector;
     }
 
+    private class LogStreamOpenActor extends ZbActor
+    {
+        @Override
+        protected void onActorStarted()
+        {
+            final ActorFuture<Void> logStreamOpen = logStream.openAsync();
+            actor.runOnCompletion(logStreamOpen, ((aVoid, throwable) ->
+            {
+                if (throwable == null)
+                {
+                    final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
+                    final ClientTransport clientTransport = clientTransportInjector.getValue();
+                    raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, persistentStorage);
+                    raft.registerRaftStateListener(raftStateListener);
+
+                    raft.addMembers(members);
+                    // TODO submit raft
+                    final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
+//                actorScheduler.submitActor(raft);
+                }
+                else
+                {
+                    Loggers.CLUSTERING_LOGGER.debug("Failed to open log stream.");
+                }
+                raftServiceOpenFuture.complete(null);
+            }));
+        }
+    }
+
+    private class LogStreamCloseActor extends ZbActor
+    {
+        @Override
+        protected void onActorStarted()
+        {
+            raft.close();
+            final ActorFuture<Void> closeLogStreamController = logStream.closeLogStreamController();
+            actor.runOnCompletion(closeLogStreamController, ((aVoid, throwable) ->
+            {
+                final ActorFuture<Void> closeLogstream = logStream.closeAsync();
+                actor.runOnCompletion(closeLogstream, ((aVoid1, throwable1) ->
+                {
+                    raftServiceCloseFuture.complete(null);
+                }));
+            }));
+        }
+    }
 }

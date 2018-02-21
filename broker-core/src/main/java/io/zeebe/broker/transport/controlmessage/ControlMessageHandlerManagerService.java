@@ -74,7 +74,7 @@ public class ControlMessageHandlerManagerService implements Service<ControlMessa
             new IncreaseTaskSubscriptionCreditsHandler(output, taskSubscriptionManager),
             new RemoveTaskSubscriptionHandler(output, taskSubscriptionManager),
             new RemoveTopicSubscriptionHandler(output, topicSubscriptionService),
-            new RequestTopologyHandler(output, clusterManagerInjector.getValue()),
+            new RequestTopologyHandler(actorScheduler, output, clusterManagerInjector.getValue()),
             new RequestPartitionsMessageHandler(output, systemPartitionManager)
         );
 

@@ -17,28 +17,28 @@
  */
 package io.zeebe.broker.system.log;
 
-import java.time.Duration;
-
-import org.agrona.DirectBuffer;
-
+import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.handler.TopologyBroker;
 import io.zeebe.broker.clustering.management.PartitionManager;
-import io.zeebe.broker.logstreams.processor.TypedEvent;
-import io.zeebe.broker.logstreams.processor.TypedEventProcessor;
-import io.zeebe.broker.logstreams.processor.TypedResponseWriter;
-import io.zeebe.broker.logstreams.processor.TypedStreamWriter;
+import io.zeebe.broker.logstreams.processor.*;
+import io.zeebe.transport.ClientRequest;
 import io.zeebe.transport.SocketAddress;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.time.ClockUtil;
+import org.agrona.DirectBuffer;
+
+import java.time.Duration;
 
 public class CreatePartitionProcessor implements TypedEventProcessor<PartitionEvent>
 {
 
+
     protected final PartitionManager partitionManager;
     protected final PendingPartitionsIndex partitions;
-
     protected final long creationTimeoutMillis;
-
     protected final SocketAddress creatorAddress = new SocketAddress();
+    private ActorControl actor;
 
     public CreatePartitionProcessor(
             PartitionManager partitionManager,
@@ -48,6 +48,12 @@ public class CreatePartitionProcessor implements TypedEventProcessor<PartitionEv
         this.partitionManager = partitionManager;
         this.partitions = partitions;
         this.creationTimeoutMillis = creationTimeout.toMillis();
+    }
+
+    @Override
+    public void onOpen(TypedStreamProcessor streamProcessor)
+    {
+        this.actor = streamProcessor.getActor();
     }
 
     @Override
@@ -70,7 +76,19 @@ public class CreatePartitionProcessor implements TypedEventProcessor<PartitionEv
         creatorAddress.host(creatorHost, 0, creatorHost.capacity());
         creatorAddress.port(creator.getPort());
 
-        partitionManager.createPartitionRemote(creatorAddress, value.getTopicName(), value.getId());
+        final ActorFuture<ClientRequest> partitionRemote =
+            partitionManager.createPartitionRemote(creatorAddress, value.getTopicName(), value.getId());
+
+
+        actor.runOnCompletion(partitionRemote, ((clientRequest, throwable) ->
+        {
+            if (throwable != null)
+            {
+                Loggers.SYSTEM_LOGGER.error("Failed to create partitions request.", throwable);
+            }
+            clientRequest.close();
+        }));
+
         return true;
     }
 

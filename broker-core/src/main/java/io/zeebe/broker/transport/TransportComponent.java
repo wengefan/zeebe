@@ -17,20 +17,6 @@
  */
 package io.zeebe.broker.transport;
 
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-import static io.zeebe.broker.system.SystemServiceNames.COUNTERS_MANAGER_SERVICE;
-import static io.zeebe.broker.transport.TransportServiceNames.CLIENT_API_MESSAGE_HANDLER;
-import static io.zeebe.broker.transport.TransportServiceNames.CLIENT_API_SERVER_NAME;
-import static io.zeebe.broker.transport.TransportServiceNames.MANAGEMENT_API_CLIENT_NAME;
-import static io.zeebe.broker.transport.TransportServiceNames.MANAGEMENT_API_SERVER_NAME;
-import static io.zeebe.broker.transport.TransportServiceNames.REPLICATION_API_CLIENT_NAME;
-import static io.zeebe.broker.transport.TransportServiceNames.REPLICATION_API_SERVER_NAME;
-
-import java.net.InetSocketAddress;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.concurrent.CompletableFuture;
-
 import io.zeebe.broker.clustering.ClusterServiceNames;
 import io.zeebe.broker.event.TopicSubscriptionServiceNames;
 import io.zeebe.broker.logstreams.LogStreamServiceNames;
@@ -51,13 +37,20 @@ import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.transport.ServerMessageHandler;
 import io.zeebe.transport.ServerRequestHandler;
-import io.zeebe.transport.ServerTransportBuilder;
 import io.zeebe.transport.SocketAddress;
+
+import java.net.InetSocketAddress;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
+import static io.zeebe.broker.system.SystemServiceNames.COUNTERS_MANAGER_SERVICE;
+import static io.zeebe.broker.transport.TransportServiceNames.*;
 
 public class TransportComponent implements Component
 {
     protected static final int MGMT_REQUEST_POOL_SIZE = 128;
-    private static final String SEND_BUFFER_SUBSCRIPTION_NAME = "sender";
 
     @Override
     public void init(SystemContext context)

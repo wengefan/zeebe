@@ -26,20 +26,26 @@ import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.BufferingServerTransport;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.SocketAddress;
+import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.ZbActorScheduler;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
 public class GossipService implements Service<Gossip>
 {
     private final Injector<ZbActorScheduler> actorSchedulerInjector = new Injector<>();
     private final Injector<ClientTransport> clientTransportInjector = new Injector<>();
     private final Injector<BufferingServerTransport> bufferingServerTransportInjector = new Injector<>();
+    private final GossipCloseActor closeActor;
 
     private Gossip gossip;
+    private CompletableActorFuture<Void> gossipServiceCloseFuture;
     private final TransportComponentCfg transportComponentCfg;
 
     public GossipService(TransportComponentCfg transportComponentCfg)
     {
         this.transportComponentCfg = transportComponentCfg;
+        this.closeActor = new GossipCloseActor();
     }
 
     @Override
@@ -51,14 +57,16 @@ public class GossipService implements Service<Gossip>
         this.gossip = new Gossip(host, bufferingServerTransportInjector.getValue(),
                                  clientTransportInjector.getValue(), transportComponentCfg.gossip);
 
-
         actorScheduler.submitActor(gossip);
     }
 
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        stopContext.async(gossip.leave().onComplete((value, throwable) -> gossip.close()));
+        gossipServiceCloseFuture = new CompletableActorFuture<>();
+        actorSchedulerInjector.getValue().submitActor(closeActor);
+
+        stopContext.async(gossipServiceCloseFuture);
     }
 
     @Override
@@ -80,5 +88,23 @@ public class GossipService implements Service<Gossip>
     public Injector<BufferingServerTransport> getBufferingServerTransportInjector()
     {
         return bufferingServerTransportInjector;
+    }
+
+
+    private final class GossipCloseActor extends ZbActor
+    {
+        @Override
+        protected void onActorStarted()
+        {
+            final ActorFuture<Void> leaveFuture = gossip.leave();
+            actor.runOnCompletion(leaveFuture, ((aVoid, throwable) ->
+            {
+                final ActorFuture<Void> closeFuture = gossip.close();
+                actor.runOnCompletion(closeFuture, ((aVoid1, throwable1) ->
+                {
+                    gossipServiceCloseFuture.complete(null);
+                }));
+            }));
+        }
     }
 }

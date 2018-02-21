@@ -152,11 +152,6 @@ public class ControlMessageHandlerManager extends ZbActor implements FragmentHan
         return isOpenend.get();
     }
 
-    public boolean isClosed()
-    {
-        return !isOpenend.get();
-    }
-
     @Override
     public int onFragment(DirectBuffer buffer, int offset, int length, int streamId, boolean isMarkedFailed)
     {

@@ -27,12 +27,15 @@ import io.zeebe.broker.transport.clientapi.BufferingServerOutput;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.msgpack.UnpackedObject;
 import io.zeebe.test.util.AutoCloseableRule;
+import io.zeebe.transport.ClientRequest;
 import io.zeebe.transport.SocketAddress;
 import io.zeebe.transport.impl.RequestResponseHeaderDescriptor;
 import io.zeebe.transport.impl.TransportHeaderDescriptor;
 import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.collection.IntIterator;
 import io.zeebe.util.collection.IntListIterator;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import io.zeebe.util.time.ClockUtil;
 import org.agrona.DirectBuffer;
@@ -791,9 +794,10 @@ public class CreateTopicStreamProcessorTest
         }
 
         @Override
-        public void createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
+        public ActorFuture<ClientRequest> createPartitionRemote(SocketAddress remote, DirectBuffer topicName, int partitionId)
         {
             partitionRequests.add(new PartitionRequest(remote, partitionId));
+            return CompletableActorFuture.completed(null);
         }
 
         public List<PartitionRequest> getPartitionRequests()
