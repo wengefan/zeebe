@@ -30,7 +30,6 @@ public class TaskSubscriptionManagerService implements Service<TaskSubscriptionM
     protected final Injector<ServerTransport> transportInjector = new Injector<>();
 
     protected TaskSubscriptionManager service;
-    protected ActorReference actorRef;
 
     protected final ServiceGroupReference<LogStream> logStreamsGroupReference = ServiceGroupReference.<LogStream>create()
         .onAdd((name, stream) -> service.addStream(stream, name))
@@ -52,7 +51,6 @@ public class TaskSubscriptionManagerService implements Service<TaskSubscriptionM
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        actorRef.close();
     }
 
     @Override

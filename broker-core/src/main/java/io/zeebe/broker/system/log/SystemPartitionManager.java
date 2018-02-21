@@ -191,7 +191,10 @@ public class SystemPartitionManager implements Service<SystemPartitionManager>
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        resolvePendingPartitionsCommand.close();
+        if (resolvePendingPartitionsCommand != null)
+        {
+            resolvePendingPartitionsCommand.close();
+        }
         partitionResponderRef.set(null);
     }
 

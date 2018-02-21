@@ -106,9 +106,11 @@ public class ControlMessageHandlerManager extends ZbActor implements FragmentHan
             if (throwable == null)
             {
                 actor.consume(sub, () -> sub.poll(this, 1));
+                openFuture.complete(null);
             }
             else
             {
+                openFuture.completeExceptionally(throwable);
                 Loggers.SYSTEM_LOGGER.error("Can't get subscription for {}", NAME, throwable);
             }
         });

@@ -137,7 +137,10 @@ public class DeploymentManager implements Service<DeploymentManager>
     @Override
     public void stop(ServiceStopContext stopContext)
     {
-        pendingDeploymentCheck.close();
+        if (pendingDeploymentCheck != null)
+        {
+            pendingDeploymentCheck.close();
+        }
     }
 
     @Override
