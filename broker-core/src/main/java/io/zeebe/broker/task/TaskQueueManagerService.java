@@ -17,6 +17,15 @@
  */
 package io.zeebe.broker.task;
 
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
+import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.TASK_EXPIRE_LOCK_STREAM_PROCESSOR_ID;
+import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.TASK_QUEUE_STREAM_PROCESSOR_ID;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
+import static io.zeebe.broker.task.TaskQueueServiceNames.TASK_QUEUE_STREAM_PROCESSOR_SERVICE_GROUP_NAME;
+import static io.zeebe.broker.task.TaskQueueServiceNames.taskQueueExpireLockStreamProcessorServiceName;
+import static io.zeebe.broker.task.TaskQueueServiceNames.taskQueueInstanceStreamProcessorServiceName;
+
 import io.zeebe.broker.logstreams.processor.StreamProcessorService;
 import io.zeebe.broker.task.processor.TaskExpireLockStreamProcessor;
 import io.zeebe.broker.task.processor.TaskInstanceStreamProcessor;
@@ -24,19 +33,17 @@ import io.zeebe.broker.transport.clientapi.CommandResponseWriter;
 import io.zeebe.broker.transport.clientapi.SubscribedEventWriter;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.processor.StreamProcessorController;
-import io.zeebe.servicecontainer.*;
+import io.zeebe.servicecontainer.Injector;
+import io.zeebe.servicecontainer.Service;
+import io.zeebe.servicecontainer.ServiceGroupReference;
+import io.zeebe.servicecontainer.ServiceName;
+import io.zeebe.servicecontainer.ServiceStartContext;
+import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.ServerTransport;
 import io.zeebe.util.sched.ZbActor;
 import io.zeebe.util.sched.ZbActorScheduler;
 
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamServiceName;
-import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.TASK_EXPIRE_LOCK_STREAM_PROCESSOR_ID;
-import static io.zeebe.broker.logstreams.processor.StreamProcessorIds.TASK_QUEUE_STREAM_PROCESSOR_ID;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
-import static io.zeebe.broker.task.TaskQueueServiceNames.*;
-
-public class TaskQueueManagerService extends ZbActor implements Service<TaskQueueManager>, TaskQueueManager
+public class TaskQueueManagerService implements Service<TaskQueueManager>, TaskQueueManager
 {
     protected static final String NAME = "task.queue.manager";
     public static final int LOCK_EXPIRATION_INTERVAL = 30; // in seconds
@@ -49,7 +56,8 @@ public class TaskQueueManagerService extends ZbActor implements Service<TaskQueu
             .onAdd((name, stream) -> addStream(stream))
             .build();
 
-    protected ServiceStartContext serviceContext;
+    private ServiceStartContext serviceContext;
+    private ZbActorScheduler actorScheduler;
 
     @Override
     public void startTaskQueue(final String logName)
@@ -106,20 +114,12 @@ public class TaskQueueManagerService extends ZbActor implements Service<TaskQueu
     }
 
     @Override
-    protected void onActorStarted()
-    {
-        actor.onCondition("alive", () -> { });
-    }
-
-    @Override
     public void start(ServiceStartContext serviceContext)
     {
         this.serviceContext = serviceContext;
 
-        final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-        actorScheduler.submitActor(this);
+        actorScheduler = actorSchedulerInjector.getValue();
     }
-
 
     @Override
     public void stop(ServiceStopContext ctx)
@@ -154,12 +154,14 @@ public class TaskQueueManagerService extends ZbActor implements Service<TaskQueu
 
     public void addStream(LogStream logStream)
     {
-        actor.call(() -> startTaskQueue(logStream.getLogName()));
-    }
-    @Override
-    public String getName()
-    {
-        return NAME;
+        actorScheduler.submitActor(new ZbActor()
+        {
+            @Override
+            protected void onActorStarted()
+            {
+                startTaskQueue(logStream.getLogName());
+            }
+        });
     }
 
 }

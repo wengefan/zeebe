@@ -17,12 +17,37 @@
  */
 package io.zeebe.broker.topic;
 
+import static io.zeebe.test.util.TestUtil.doRepeatedly;
+import static io.zeebe.test.util.TestUtil.waitUntil;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import io.zeebe.broker.clustering.handler.TopologyBroker;
 import io.zeebe.broker.clustering.management.PartitionManager;
 import io.zeebe.broker.clustering.member.Member;
 import io.zeebe.broker.logstreams.processor.TypedStreamEnvironment;
 import io.zeebe.broker.logstreams.processor.TypedStreamProcessor;
-import io.zeebe.broker.system.log.*;
+import io.zeebe.broker.system.log.PartitionEvent;
+import io.zeebe.broker.system.log.PartitionState;
+import io.zeebe.broker.system.log.PendingPartitionsIndex;
+import io.zeebe.broker.system.log.ResolvePendingPartitionsCommand;
+import io.zeebe.broker.system.log.SystemPartitionManager;
+import io.zeebe.broker.system.log.TopicEvent;
+import io.zeebe.broker.system.log.TopicState;
+import io.zeebe.broker.system.log.TopicsIndex;
 import io.zeebe.broker.transport.clientapi.BufferingServerOutput;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.msgpack.UnpackedObject;
@@ -39,21 +64,13 @@ import io.zeebe.util.sched.future.CompletableActorFuture;
 import io.zeebe.util.sched.testing.ActorSchedulerRule;
 import io.zeebe.util.time.ClockUtil;
 import org.agrona.DirectBuffer;
-import org.junit.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Ignore;
+import org.junit.Rule;
+import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import static io.zeebe.test.util.TestUtil.doRepeatedly;
-import static io.zeebe.test.util.TestUtil.waitUntil;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 
 public class CreateTopicStreamProcessorTest
 {
@@ -109,13 +126,15 @@ public class CreateTopicStreamProcessorTest
                 streamEnvironment.buildStreamReader(),
                 streamEnvironment.buildStreamWriter());
 
-        streamProcessor = SystemPartitionManager.buildTopicCreationProcessor(
-                streamEnvironment,
-                partitionManager,
-                topicsIndex,
-                partitionsIndex,
-                CREATION_EXPIRATION,
-            () -> { });
+        streamProcessor = SystemPartitionManager
+                .buildTopicCreationProcessor(
+                    streamEnvironment,
+                    partitionManager,
+                    topicsIndex,
+                    partitionsIndex,
+                    CREATION_EXPIRATION,
+                    () ->
+                    { });
     }
 
     @After

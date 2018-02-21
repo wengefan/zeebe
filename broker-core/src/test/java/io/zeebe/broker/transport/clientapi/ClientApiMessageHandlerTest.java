@@ -17,6 +17,18 @@
  */
 package io.zeebe.broker.transport.clientapi;
 
+import static io.zeebe.dispatcher.impl.log.DataFrameDescriptor.alignedFramedLength;
+import static io.zeebe.util.VarDataUtil.readBytes;
+import static io.zeebe.util.buffer.BufferUtil.wrapString;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+
 import io.zeebe.broker.task.data.TaskEvent;
 import io.zeebe.broker.task.data.TaskState;
 import io.zeebe.broker.transport.controlmessage.ControlMessageRequestHeaderDescriptor;
@@ -27,7 +39,13 @@ import io.zeebe.logstreams.log.BufferedLogStreamReader;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.protocol.Protocol;
-import io.zeebe.protocol.clientapi.*;
+import io.zeebe.protocol.clientapi.ControlMessageRequestDecoder;
+import io.zeebe.protocol.clientapi.ControlMessageRequestEncoder;
+import io.zeebe.protocol.clientapi.ErrorCode;
+import io.zeebe.protocol.clientapi.ErrorResponseDecoder;
+import io.zeebe.protocol.clientapi.EventType;
+import io.zeebe.protocol.clientapi.ExecuteCommandRequestEncoder;
+import io.zeebe.protocol.clientapi.MessageHeaderEncoder;
 import io.zeebe.protocol.impl.BrokerEventMetadata;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.SocketAddress;
@@ -43,18 +61,6 @@ import org.junit.rules.TemporaryFolder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
-
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-
-import static io.zeebe.dispatcher.impl.log.DataFrameDescriptor.alignedFramedLength;
-import static io.zeebe.util.VarDataUtil.readBytes;
-import static io.zeebe.util.buffer.BufferUtil.wrapString;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 public class ClientApiMessageHandlerTest
 {
@@ -407,7 +413,8 @@ public class ClientApiMessageHandlerTest
 
             fragmentOffset = claimedFragment.getOffset();
 
-            claimedFragment.wrap(sendBuffer, 0, alignedFramedLength(length), () -> { });
+            claimedFragment.wrap(sendBuffer, 0, alignedFramedLength(length), () ->
+            { });
 
             final long claimedPosition = offset + alignedFramedLength(length);
             return claimedPosition;
