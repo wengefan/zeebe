@@ -15,22 +15,6 @@
  */
 package io.zeebe.test.broker.protocol.brokerapi;
 
-import static io.zeebe.test.broker.protocol.clientapi.ClientApiRule.DEFAULT_TOPIC_NAME;
-
-import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
-
-import org.agrona.concurrent.UnsafeBuffer;
-import org.agrona.concurrent.status.CountersManager;
-import org.junit.rules.ExternalResource;
-
 import io.zeebe.dispatcher.Dispatcher;
 import io.zeebe.dispatcher.Dispatchers;
 import io.zeebe.protocol.Protocol;
@@ -46,6 +30,19 @@ import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.ServerTransport;
 import io.zeebe.transport.Transports;
 import io.zeebe.util.sched.ZbActorScheduler;
+import org.junit.rules.ExternalResource;
+
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+import static io.zeebe.test.broker.protocol.clientapi.ClientApiRule.DEFAULT_TOPIC_NAME;
 
 public class StubBrokerRule extends ExternalResource
 {
