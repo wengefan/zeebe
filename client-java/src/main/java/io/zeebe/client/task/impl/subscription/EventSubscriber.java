@@ -37,8 +37,8 @@ public abstract class EventSubscriber
     protected final long subscriberKey;
     protected final ManyToManyConcurrentArrayQueue<GeneralEventImpl> pendingEvents;
     protected final int capacity;
-    protected final EventAcquisition2 acquisition;
-    protected final EventSubscriberGroup2 group;
+    protected final SubscriptionManager acquisition;
+    protected final EventSubscriberGroup group;
 
     protected RemoteAddress eventSource;
     protected int partitionId;
@@ -56,8 +56,8 @@ public abstract class EventSubscriber
             int partitionId,
             int capacity,
             RemoteAddress eventSource,
-            EventSubscriberGroup2 group,
-            EventAcquisition2 acquisition)
+            EventSubscriberGroup group,
+            SubscriptionManager acquisition)
     {
         this.subscriberKey = subscriberKey;
         this.eventSource = eventSource;
@@ -77,11 +77,6 @@ public abstract class EventSubscriber
     public boolean isOpen()
     {
         return state == STATE_OPEN;
-    }
-
-    public boolean isDisabled()
-    {
-        return state == STATE_DISABLED;
     }
 
     public int size()

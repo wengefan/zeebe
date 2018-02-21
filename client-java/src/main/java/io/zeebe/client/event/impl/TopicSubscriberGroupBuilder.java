@@ -19,7 +19,7 @@ import java.util.concurrent.Future;
 
 import org.agrona.collections.Long2LongHashMap;
 
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.EnsureUtil;
 
@@ -27,7 +27,7 @@ public class TopicSubscriberGroupBuilder
 {
     protected final String topic;
     protected CheckedConsumer<GeneralEventImpl> handler;
-    protected final EventAcquisition2 acquisition;
+    protected final SubscriptionManager acquisition;
     protected String name;
     protected final int prefetchCapacity;
     protected boolean forceStart;
@@ -36,7 +36,7 @@ public class TopicSubscriberGroupBuilder
 
     public TopicSubscriberGroupBuilder(
             String topic,
-            EventAcquisition2 acquisition,
+            SubscriptionManager acquisition,
             int prefetchCapacity)
     {
         EnsureUtil.ensureNotNull("topic", topic);

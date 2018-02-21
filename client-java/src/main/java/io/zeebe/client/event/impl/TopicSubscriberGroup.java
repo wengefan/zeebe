@@ -21,15 +21,15 @@ import io.zeebe.client.event.PollableTopicSubscription;
 import io.zeebe.client.event.TopicSubscription;
 import io.zeebe.client.event.UniversalEventHandler;
 import io.zeebe.client.impl.ZeebeClientImpl;
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.client.task.impl.subscription.EventSubscriber;
-import io.zeebe.client.task.impl.subscription.EventSubscriberGroup2;
+import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
 import io.zeebe.client.task.impl.subscription.EventSubscriptionCreationResult;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
 
-public class TopicSubscriberGroup extends EventSubscriberGroup2 //<TopicSubscriber>
+public class TopicSubscriberGroup extends EventSubscriberGroup //<TopicSubscriber>
     implements TopicSubscription, PollableTopicSubscription
 {
 
@@ -41,7 +41,7 @@ public class TopicSubscriberGroup extends EventSubscriberGroup2 //<TopicSubscrib
     public TopicSubscriberGroup(
             ActorControl actor,
             ZeebeClientImpl client,
-            EventAcquisition2 acquisition,
+            SubscriptionManager acquisition,
             TopicSubscriptionSpec subscription)
     {
         super(actor, client, acquisition, subscription.getTopic());

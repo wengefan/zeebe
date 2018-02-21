@@ -18,9 +18,9 @@ package io.zeebe.client.event.impl;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.client.task.impl.subscription.EventSubscriber;
-import io.zeebe.client.task.impl.subscription.EventSubscriberGroup2;
+import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.future.ActorFuture;
@@ -46,8 +46,8 @@ public class TopicSubscriber extends EventSubscriber
             long subscriberKey,
             RemoteAddress eventSource,
             int partitionId,
-            EventSubscriberGroup2 group,
-            EventAcquisition2 acquisition)
+            EventSubscriberGroup group,
+            SubscriptionManager acquisition)
     {
         super(subscriberKey, partitionId, subscription.getPrefetchCapacity(), eventSource, group, acquisition);
         this.subscription = subscription;

@@ -43,7 +43,7 @@ import io.zeebe.client.cmd.Request;
 import io.zeebe.client.event.impl.TopicClientImpl;
 import io.zeebe.client.impl.data.MsgPackConverter;
 import io.zeebe.client.impl.data.MsgPackMapper;
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.dispatcher.Dispatcher;
 import io.zeebe.dispatcher.Dispatchers;
 import io.zeebe.transport.ClientTransport;
@@ -86,7 +86,7 @@ public class ZeebeClientImpl implements ZeebeClient
 
     protected boolean isClosed;
 
-    protected EventAcquisition2 eventAcquisition;
+    protected SubscriptionManager eventAcquisition;
 
     private final int subscriptionPrefetchCapacity;
 
@@ -180,7 +180,7 @@ public class ZeebeClientImpl implements ZeebeClient
                 objectMapper,
                 requestTimeout);
 
-        this.eventAcquisition = new EventAcquisition2(this);
+        this.eventAcquisition = new SubscriptionManager(this);
         this.transport.registerChannelListener(eventAcquisition);
         this.scheduler.submitActor(eventAcquisition);
 
@@ -303,7 +303,7 @@ public class ZeebeClientImpl implements ZeebeClient
         return scheduler;
     }
 
-    public EventAcquisition2 getEventAcquisition()
+    public SubscriptionManager getEventAcquisition()
     {
         return eventAcquisition;
     }

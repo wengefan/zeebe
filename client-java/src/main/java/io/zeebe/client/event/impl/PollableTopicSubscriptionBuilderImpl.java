@@ -21,7 +21,7 @@ import java.util.concurrent.Future;
 import io.zeebe.client.cmd.ClientException;
 import io.zeebe.client.event.PollableTopicSubscription;
 import io.zeebe.client.event.PollableTopicSubscriptionBuilder;
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.util.EnsureUtil;
 
 public class PollableTopicSubscriptionBuilderImpl implements PollableTopicSubscriptionBuilder
@@ -30,7 +30,7 @@ public class PollableTopicSubscriptionBuilderImpl implements PollableTopicSubscr
 
     public PollableTopicSubscriptionBuilderImpl(
             String topic,
-            EventAcquisition2 acquisition,
+            SubscriptionManager acquisition,
             int prefetchCapacity)
     {
         implBuilder = new TopicSubscriberGroupBuilder(topic, acquisition, prefetchCapacity);

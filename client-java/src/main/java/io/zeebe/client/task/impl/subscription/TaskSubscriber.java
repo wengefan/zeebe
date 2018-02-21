@@ -40,7 +40,7 @@ public class TaskSubscriber extends EventSubscriber
             TaskSubscriptionSpec subscription,
             int partition,
             MsgPackMapper msgPackMapper,
-            EventAcquisition acqusition)
+            SubscriptionManager acqusition)
     {
         super(partition, subscription.getCapacity(), acqusition);
         this.taskClient = client;

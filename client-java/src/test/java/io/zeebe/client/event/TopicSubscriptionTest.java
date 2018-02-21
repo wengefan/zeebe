@@ -21,9 +21,12 @@ import static org.junit.Assert.fail;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,12 +40,16 @@ import org.junit.rules.ExpectedException;
 import org.junit.rules.RuleChain;
 
 import io.zeebe.client.ZeebeClient;
+import io.zeebe.client.event.impl.TopicSubscriber;
 import io.zeebe.client.event.impl.TopicSubscriberGroup;
+import io.zeebe.client.event.impl.TopicSubscriptionBuilderImpl;
+import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
 import io.zeebe.client.util.ClientRule;
 import io.zeebe.protocol.clientapi.ControlMessageType;
 import io.zeebe.protocol.clientapi.EventType;
 import io.zeebe.test.broker.protocol.brokerapi.ControlMessageRequest;
 import io.zeebe.test.broker.protocol.brokerapi.ExecuteCommandRequest;
+import io.zeebe.test.broker.protocol.brokerapi.ResponseController;
 import io.zeebe.test.broker.protocol.brokerapi.StubBrokerRule;
 import io.zeebe.test.util.Conditions;
 import io.zeebe.test.util.TestUtil;
@@ -872,33 +879,31 @@ public class TopicSubscriptionTest
                 + "es soll nicht möglich sein den Client/EventAcquisition zu schließen und gleichzeitig einen Subscriber zu öffnen, sodass"
                 + "am Ende Subscriber offen bleiben");
 
-//        // given
-//        final int subscriberKey = 123;
-//
-//        broker.stubTopicSubscriptionApi(0L);
-//        final ResponseController responseController = broker.onExecuteCommandRequest(EventType.SUBSCRIBER_EVENT, "SUBSCRIBE")
-//            .respondWith()
-//            .key(subscriberKey)
-//            .event()
-//                .allOf((r) -> r.getCommand())
-//                .put("state", "SUBSCRIBED")
-//                .done()
-//            .registerControlled();
-//
-//        final TopicSubscriptionBuilderImpl builder = (TopicSubscriptionBuilderImpl) client.topics().newSubscription(clientRule.getDefaultTopicName())
-//            .handler(DO_NOTHING)
-//            .name("foo");
-//
-//        final Future<TopicSubscriberGroup> subscriberGroup = builder
-//            .buildSubscriberGroup();
-//
-//        subscriberGroup.openAsync();
-//
-//        waitUntil(() ->
-//            broker.getReceivedCommandRequests().stream()
-//                .filter(r -> r.eventType() == EventType.SUBSCRIBER_EVENT && "SUBSCRIBE".equals(r.getCommand().get("state")))
-//                .count() == 1);
-//
+        // given
+        final int subscriberKey = 123;
+
+        broker.stubTopicSubscriptionApi(0L);
+        final ResponseController responseController = broker.onExecuteCommandRequest(EventType.SUBSCRIBER_EVENT, "SUBSCRIBE")
+            .respondWith()
+            .key(subscriberKey)
+            .event()
+                .allOf((r) -> r.getCommand())
+                .put("state", "SUBSCRIBED")
+                .done()
+            .registerControlled();
+
+        final TopicSubscriptionBuilderImpl builder = (TopicSubscriptionBuilderImpl) client.topics().newSubscription(clientRule.getDefaultTopicName())
+            .handler(DO_NOTHING)
+            .name("foo");
+
+        final Future<TopicSubscriberGroup> subscriberGroup = builder
+            .buildSubscriberGroup();
+
+        waitUntil(() ->
+            broker.getReceivedCommandRequests().stream()
+                .filter(r -> r.eventType() == EventType.SUBSCRIBER_EVENT && "SUBSCRIBE".equals(r.getCommand().get("state")))
+                .count() == 1);
+
 //        final CompletableFuture<EventSubscriberGroup<TopicSubscriber>> closeFuture = subscriberGroup.closeAsync();
 //
 //        // when
@@ -923,6 +928,10 @@ public class TopicSubscriptionTest
     {
         // TODO: requests (open, close, ack) are no longer blocking; identify error cases and test them
         fail("Implement");
+        // TODO: vielleicht ist es doch am besten, wenn die Group eine Map von Partition-ID auf
+        // Subscriber-State hält, worüber immer klar ist, was für einen Partition gerade passiert (Subscriber offen, Subscribing
+        // in progress, Subscriber closing, etc.) => vielleicht wird der Code dann an einigen Stellen klarer
+
     }
 
     protected void assertMetadata(Event actualEvent, long expectedKey, long expectedPosition,

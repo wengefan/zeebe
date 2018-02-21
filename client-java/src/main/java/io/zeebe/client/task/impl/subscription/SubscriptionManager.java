@@ -1,197 +1,209 @@
-/*
- * Copyright © 2017 camunda services GmbH (info@camunda.com)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package io.zeebe.client.task.impl.subscription;
 
-import io.zeebe.client.ZeebeClient;
-import io.zeebe.client.clustering.impl.ClientTopologyManager;
-import io.zeebe.client.event.PollableTopicSubscriptionBuilder;
-import io.zeebe.client.event.TopicSubscriptionBuilder;
-import io.zeebe.client.event.impl.PollableTopicSubscriptionBuilderImpl;
-import io.zeebe.client.event.impl.TopicSubscriptionBuilderImpl;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.agrona.ErrorHandler;
+import org.agrona.concurrent.Agent;
+import org.agrona.concurrent.AgentRunner;
+import org.agrona.concurrent.BackoffIdleStrategy;
+import org.agrona.concurrent.IdleStrategy;
+import org.slf4j.Logger;
+
+import io.zeebe.client.event.EventMetadata;
+import io.zeebe.client.event.impl.GeneralEventImpl;
+import io.zeebe.client.event.impl.TopicSubscriberGroup;
+import io.zeebe.client.event.impl.TopicSubscriptionSpec;
+import io.zeebe.client.impl.Loggers;
 import io.zeebe.client.impl.ZeebeClientImpl;
-import io.zeebe.client.impl.data.MsgPackMapper;
-import io.zeebe.client.task.PollableTaskSubscriptionBuilder;
-import io.zeebe.client.task.TaskSubscriptionBuilder;
+import io.zeebe.protocol.clientapi.SubscriptionType;
 import io.zeebe.transport.ClientInputMessageSubscription;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.TransportListener;
-import io.zeebe.util.actor.Actor;
-import io.zeebe.util.actor.ActorReference;
-import io.zeebe.util.actor.ActorScheduler;
+import io.zeebe.util.sched.ZbActor;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
-public class SubscriptionManager implements TransportListener, Actor
+public class SubscriptionManager extends ZbActor implements SubscribedEventHandler, TransportListener
 {
-    protected final EventAcquisition taskAcquisition;
-    protected final EventAcquisition topicSubscriptionAcquisition;
-    protected final ClientInputMessageSubscription messageSubscription;
-    protected final MsgPackMapper msgPackMapper;
-    protected final ClientTopologyManager topologyManager;
+    protected static final Logger LOGGER = Loggers.SUBSCRIPTION_LOGGER;
 
-    protected final ActorScheduler executorActorScheduler;
-    protected final ActorScheduler acquisitionActorScheduler;
+    protected final ZeebeClientImpl client;
 
-    protected ActorReference[] acquisitionActorRefs;
-    protected ActorReference[] executorActorRefs;
+    private ClientInputMessageSubscription messageSubscription;
+    private final EventSubscribers taskSubscribers = new EventSubscribers();
+    private final EventSubscribers topicSubscribers = new EventSubscribers();
 
-    protected final int numExecutionThreads;
+    final IdleStrategy idleStrategy = new BackoffIdleStrategy(1000, 100, 1, TimeUnit.MILLISECONDS.toNanos(1));
+    final ErrorHandler errorHandler = Throwable::printStackTrace;
 
-    protected final EventSubscribers taskSubscribers;
-    protected final EventSubscribers topicSubscribers;
+    private final List<AgentRunner> agentRunners = new ArrayList<>();
 
-    // topic-subscription specific config
-    protected final int topicSubscriptionPrefetchCapacity;
-
-    public SubscriptionManager(
-            ZeebeClientImpl client,
-            int numExecutionThreads,
-            int topicSubscriptionPrefetchCapacity)
+    public SubscriptionManager(ZeebeClientImpl client)
     {
-        this.taskSubscribers = new EventSubscribers();
-        this.topicSubscribers = new EventSubscribers();
+        this.client = client;
+    }
 
-        this.taskAcquisition = new EventAcquisition("task-acquisition", taskSubscribers);
-        this.topicSubscriptionAcquisition = new EventAcquisition("topic-event-acquisition", topicSubscribers);
-
+    @Override
+    protected void onActorStarted()
+    {
         final SubscribedEventCollector taskCollector = new SubscribedEventCollector(
-                taskAcquisition,
-                topicSubscriptionAcquisition,
+                this,
                 client.getMsgPackConverter());
-        this.messageSubscription = client.getTransport()
-                .openSubscription("event-acquisition", taskCollector)
-                .join();
 
-        this.numExecutionThreads = numExecutionThreads;
-        this.msgPackMapper = new MsgPackMapper(client.getObjectMapper());
-
-        this.topicSubscriptionPrefetchCapacity = topicSubscriptionPrefetchCapacity;
-        this.topologyManager = client.getTopologyManager();
-//
-//        this.acquisitionActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("acquisition");
-//        this.executorActorScheduler = ActorSchedulerBuilder.createDefaultScheduler("executors", numExecutionThreads);
-    }
-
-    public void start()
-    {
-        startAcquisition();
-        startExecution();
-    }
-
-    public void stop()
-    {
-        stopAcquisition();
-        stopExecution();
-    }
-
-    public void close()
-    {
-        acquisitionActorScheduler.close();
-        executorActorScheduler.close();
-    }
-
-    protected void startAcquisition()
-    {
-        if (acquisitionActorRefs == null)
-        {
-            acquisitionActorRefs = new ActorReference[3];
-
-            acquisitionActorRefs[0] = acquisitionActorScheduler.schedule(this);
-            acquisitionActorRefs[1] = acquisitionActorScheduler.schedule(taskAcquisition);
-            acquisitionActorRefs[2] = acquisitionActorScheduler.schedule(topicSubscriptionAcquisition);
-        }
-    }
-
-    protected void stopAcquisition()
-    {
-        for (int i = 0; i < acquisitionActorRefs.length; i++)
-        {
-            acquisitionActorRefs[i].close();
-        }
-
-        acquisitionActorRefs = null;
-    }
-
-    protected void startExecution()
-    {
-        if (executorActorRefs == null)
-        {
-            executorActorRefs = new ActorReference[numExecutionThreads * 2];
-
-            for (int i = 0; i < executorActorRefs.length; i += 2)
+        actor.await(client.getTransport().openSubscription("event-acquisition", taskCollector),
+            (s, t) ->
             {
-                executorActorRefs[i] = executorActorScheduler.schedule(new SubscriptionExecutor(taskSubscribers));
-                executorActorRefs[i + 1] = executorActorScheduler.schedule(new SubscriptionExecutor(topicSubscribers));
-            }
+                this.messageSubscription = s;
+                actor.consume(s, this::pollInput);
+            });
+
+        startSubscriptionExecution(client.getNumExecutionThreads());
+
+        // TODO: <hack> prevent autoclose
+        actor.onCondition("foo", () ->
+        {
+        });
+    }
+
+    private void startSubscriptionExecution(int numThreads)
+    {
+        for (int i = 0; i < numThreads; i++)
+        {
+            final SubscriptionExecutor executor = new SubscriptionExecutor(topicSubscribers);
+            final AgentRunner agentRunner = initAgentRunner(executor);
+            AgentRunner.startOnThread(agentRunner);
+
+            agentRunners.add(agentRunner);
         }
     }
 
-    protected void stopExecution()
+    private void stopSubscriptionExecution()
     {
-        for (int i = 0; i < executorActorRefs.length; i++)
+        for (AgentRunner runner: agentRunners)
         {
-            executorActorRefs[i].close();
+            runner.close();
         }
+    }
 
-        executorActorRefs = null;
+    private AgentRunner initAgentRunner(Agent agent)
+    {
+        return new AgentRunner(idleStrategy, errorHandler, null, agent);
+    }
+
+    @Override
+    protected void onActorClosing()
+    {
+        closeAllSubscribers();
+
+        // TODO: das hier blockiert jetzt im Kontext des ActorSchedulers; könnte aber ok sein (oder sonst als pollBlocking abgeben)
+        stopSubscriptionExecution();
+    }
+
+    public ActorFuture<EventSubscriberGroup> openTopicSubscription(TopicSubscriptionSpec spec)
+    {
+        final CompletableActorFuture<EventSubscriberGroup> future = new CompletableActorFuture<>();
+        actor.call(() ->
+        {
+            final EventSubscriberGroup group = new TopicSubscriberGroup(actor, client, this, spec);
+            topicSubscribers.addGroup(group);
+            group.open(future);
+        });
+
+        return future;
+    }
+
+    protected void pollInput()
+    {
+        // TODO: muss man hier noch mehr machen?
+        messageSubscription.poll();
+    }
+
+    public void addSubscriber(EventSubscriber subscriber)
+    {
+        // TODO: distinguish task and topic subscribers
+        topicSubscribers.add(subscriber);
+
+    }
+
+    public void removeSubscriber(EventSubscriber subscriber)
+    {
+        topicSubscribers.remove(subscriber);
     }
 
     public void closeAllSubscribers()
     {
-        this.taskSubscribers.closeAllGroups();
-        this.topicSubscribers.closeAllGroups();
+        topicSubscribers.closeAllGroups();
     }
 
-    public TaskSubscriptionBuilder newTaskSubscription(ZeebeClient client, String topic)
+    public ActorFuture<Void> reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
     {
-        return new TaskSubscriptionBuilderImpl(client, topologyManager, topic, taskAcquisition, msgPackMapper);
+        return actor.call(() -> topicSubscribers.reopenSubscribersForRemote(remoteAddress));
     }
 
-    public PollableTaskSubscriptionBuilder newPollableTaskSubscription(ZeebeClient client, String topic)
+    public ActorFuture<Void> closeGroup(EventSubscriberGroup group)
     {
-        return new PollableTaskSubscriptionBuilderImpl(client, topologyManager, topic, taskAcquisition, msgPackMapper);
+        final CompletableActorFuture<Void> closeFuture = new CompletableActorFuture<>();
+        actor.call(() -> group.doClose(closeFuture));
+        return closeFuture;
     }
 
-    public TopicSubscriptionBuilder newTopicSubscription(ZeebeClient client, String topic)
+    @Override
+    public boolean onEvent(SubscriptionType type, long subscriberKey, GeneralEventImpl event)
     {
-        return new TopicSubscriptionBuilderImpl(client, topologyManager, topic, topicSubscriptionAcquisition, msgPackMapper, topicSubscriptionPrefetchCapacity);
+        final EventMetadata eventMetadata = event.getMetadata();
+        // TODO: make work with task subscribers
+
+        EventSubscriber subscriber = topicSubscribers.getSubscriber(eventMetadata.getPartitionId(), subscriberKey);
+
+        if (subscriber == null)
+        {
+            // TODO: restore this logic
+//            if (subscribers.isAnySubscriberOpening())
+//            {
+//                // avoids a race condition when a subscribe request is in progress and we haven't activated the subscriber
+//                // yet, but we already receive an event from the broker
+//                // in this case, we postpone the event
+//                return false;
+//            }
+//            else
+//            {
+                // fetch a second time as the subscriber may have opened (and registered) between the first #getSubscriptions
+                // invocation and the check for opening subscribers
+                subscriber = topicSubscribers.getSubscriber(eventMetadata.getPartitionId(), subscriberKey);
+//            }
+        }
+
+
+        if (subscriber != null && subscriber.isOpen())
+        {
+            event.setTopicName(subscriber.getTopicName());
+            return subscriber.addEvent(event);
+        }
+        else
+        {
+            LOGGER.debug("Event Acquisition: Ignoring event " + event.toString() + " for subscription " + subscriberKey);
+            return true; // ignoring the event is success; don't want to retry it later
+        }
     }
 
-    public PollableTopicSubscriptionBuilder newPollableTopicSubscription(ZeebeClient client, String topic)
+    public ActorFuture<Void> close()
     {
-        return new PollableTopicSubscriptionBuilderImpl(client, topologyManager, topic, topicSubscriptionAcquisition, topicSubscriptionPrefetchCapacity);
+        return actor.close();
     }
+
 
     @Override
     public void onConnectionEstablished(RemoteAddress remoteAddress)
     {
-
     }
+
 
     @Override
     public void onConnectionClosed(RemoteAddress remoteAddress)
     {
-        // doing this async in the context of the acquisition agent. This actor owns
-        // the subscriptions and can reliably determine those that are connected
-        // to the given remote address
-        taskAcquisition.reopenSubscriptionsForRemoteAsync(remoteAddress);
-        topicSubscriptionAcquisition.reopenSubscriptionsForRemoteAsync(remoteAddress);
+        reopenSubscriptionsForRemoteAsync(remoteAddress);
     }
 
-    @Override
-    public int doWork() throws Exception
-    {
-        return messageSubscription.poll();
-    }
 }

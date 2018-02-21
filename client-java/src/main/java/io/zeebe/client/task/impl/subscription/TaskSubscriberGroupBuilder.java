@@ -32,7 +32,7 @@ public class TaskSubscriberGroupBuilder
     protected int taskFetchSize = DEFAULT_TASK_FETCH_SIZE;
 
     protected final ZeebeClient client;
-    protected final EventAcquisition taskAcquisition;
+    protected final SubscriptionManager taskAcquisition;
     protected final MsgPackMapper msgPackMapper;
     protected final String topic;
     protected final ClientTopologyManager topologyManager;
@@ -41,7 +41,7 @@ public class TaskSubscriberGroupBuilder
             ZeebeClient client,
             ClientTopologyManager topologyManager,
             String topic,
-            EventAcquisition taskAcquisition,
+            SubscriptionManager taskAcquisition,
             MsgPackMapper msgPackMapper)
     {
         this.topic = topic;

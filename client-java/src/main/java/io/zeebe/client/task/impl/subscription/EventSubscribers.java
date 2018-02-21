@@ -35,10 +35,10 @@ public class EventSubscribers
     // partitionId => subscriberKey => subscription (subscriber keys are not guaranteed to be globally unique)
     protected Int2ObjectHashMap<Long2ObjectHashMap<EventSubscriber>> subscribers = new Int2ObjectHashMap<>();
 
-    protected final List<EventSubscriberGroup2> pollableSubscriberGroups = new CopyOnWriteArrayList<>();
-    protected final List<EventSubscriberGroup2> managedSubscriberGroups = new CopyOnWriteArrayList<>();
+    protected final List<EventSubscriberGroup> pollableSubscriberGroups = new CopyOnWriteArrayList<>();
+    protected final List<EventSubscriberGroup> managedSubscriberGroups = new CopyOnWriteArrayList<>();
 
-    public void addGroup(final EventSubscriberGroup2 subscription)
+    public void addGroup(final EventSubscriberGroup subscription)
     {
         if (subscription.isManagedGroup())
         {
@@ -50,30 +50,30 @@ public class EventSubscribers
         }
     }
 
-    protected void addPollableGroup(final EventSubscriberGroup2 subscription)
+    protected void addPollableGroup(final EventSubscriberGroup subscription)
     {
         this.pollableSubscriberGroups.add(subscription);
     }
 
-    protected void addManagedGroup(final EventSubscriberGroup2 subscription)
+    protected void addManagedGroup(final EventSubscriberGroup subscription)
     {
         this.managedSubscriberGroups.add(subscription);
     }
 
     public void closeAllGroups()
     {
-        for (final EventSubscriberGroup2 group : pollableSubscriberGroups)
+        for (final EventSubscriberGroup group : pollableSubscriberGroups)
         {
             closeGroup(group);
         }
 
-        for (final EventSubscriberGroup2 group : managedSubscriberGroups)
+        for (final EventSubscriberGroup group : managedSubscriberGroups)
         {
             closeGroup(group);
         }
     }
 
-    protected void closeGroup(EventSubscriberGroup2 group)
+    protected void closeGroup(EventSubscriberGroup group)
     {
         try
         {
@@ -140,11 +140,11 @@ public class EventSubscribers
         return null;
     }
 
-    protected int forAllDo(List<EventSubscriberGroup2> groups, ToIntFunction<EventSubscriberGroup2> action)
+    protected int forAllDo(List<EventSubscriberGroup> groups, ToIntFunction<EventSubscriberGroup> action)
     {
         int workCount = 0;
 
-        for (EventSubscriberGroup2 group : groups)
+        for (EventSubscriberGroup group : groups)
         {
             workCount += action.applyAsInt(group);
         }
@@ -152,9 +152,9 @@ public class EventSubscribers
         return workCount;
     }
 
-    protected void forAllDoConsume(List<EventSubscriberGroup2> groups, Consumer<EventSubscriberGroup2> action)
+    protected void forAllDoConsume(List<EventSubscriberGroup> groups, Consumer<EventSubscriberGroup> action)
     {
-        for (EventSubscriberGroup2 subscription : groups)
+        for (EventSubscriberGroup subscription : groups)
         {
             action.accept(subscription);
         }

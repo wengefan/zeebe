@@ -35,7 +35,7 @@ public class TaskSubscriptionBuilderImpl implements TaskSubscriptionBuilder
             ZeebeClient client,
             ClientTopologyManager topologyManager,
             String topic,
-            EventAcquisition taskAcquisition,
+            SubscriptionManager taskAcquisition,
             MsgPackMapper msgPackMapper)
     {
         this.subscriberBuilder = new TaskSubscriberGroupBuilder(client, topologyManager, topic, taskAcquisition, msgPackMapper);

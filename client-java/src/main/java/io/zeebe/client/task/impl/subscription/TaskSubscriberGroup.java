@@ -31,7 +31,7 @@ public class TaskSubscriberGroup extends EventSubscriberGroup<TaskSubscriber> im
 
     public TaskSubscriberGroup(
             ZeebeClient client,
-            EventAcquisition acquisition,
+            SubscriptionManager acquisition,
             TaskSubscriptionSpec subscription,
             MsgPackMapper msgPackMapper)
     {

@@ -29,7 +29,7 @@ import io.zeebe.client.event.UniversalEventHandler;
 import io.zeebe.client.event.WorkflowEventHandler;
 import io.zeebe.client.event.WorkflowInstanceEventHandler;
 import io.zeebe.client.impl.data.MsgPackMapper;
-import io.zeebe.client.task.impl.subscription.EventAcquisition2;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.client.workflow.impl.WorkflowInstanceEventImpl;
 import io.zeebe.util.EnsureUtil;
 
@@ -47,7 +47,7 @@ public class TopicSubscriptionBuilderImpl implements TopicSubscriptionBuilder
 
     public TopicSubscriptionBuilderImpl(
             String topic,
-            EventAcquisition2 acquisition,
+            SubscriptionManager acquisition,
             MsgPackMapper msgPackMapper,
             int prefetchCapacity)
     {

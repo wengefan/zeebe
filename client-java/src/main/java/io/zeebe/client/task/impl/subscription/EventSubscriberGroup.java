@@ -1,397 +1,160 @@
-/*
- * Copyright © 2017 camunda services GmbH (info@camunda.com)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package io.zeebe.client.task.impl.subscription;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.slf4j.Logger;
+import org.agrona.collections.Int2ObjectHashMap;
 
-import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.cmd.ClientException;
 import io.zeebe.client.event.impl.GeneralEventImpl;
-import io.zeebe.client.impl.Loggers;
+import io.zeebe.client.impl.ZeebeClientImpl;
 import io.zeebe.client.topic.Partition;
 import io.zeebe.client.topic.Topic;
 import io.zeebe.client.topic.Topics;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
-import io.zeebe.util.state.SimpleStateMachineContext;
-import io.zeebe.util.state.State;
-import io.zeebe.util.state.StateMachine;
-import io.zeebe.util.state.StateMachineAgent;
-import io.zeebe.util.state.WaitState;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
-public abstract class EventSubscriberGroup<T extends EventSubscriber>
+public abstract class EventSubscriberGroup
 {
-    protected static final Logger LOG = Loggers.SUBSCRIPTION_LOGGER;
-    protected static final String LOG_MESSAGE_PREFIX = "Subscriber Group {}: ";
 
-    protected List<Partition> partitions;
-    protected List<T> subscribers = new ArrayList<>();
+    protected final ActorControl actor;
 
-    protected CompletableFuture<EventSubscriberGroup<T>> openFuture;
-    protected CompletableFuture<EventSubscriberGroup<T>> closeFuture;
+    protected final ZeebeClientImpl client;
+    protected final Int2ObjectHashMap<SubscriberState> subscriberState = new Int2ObjectHashMap<>();
 
-    protected final InitState initState = new InitState();
-    protected final DeterminePartitionsState determinePartitionsState = new DeterminePartitionsState();
-    protected final InitiateSubscribersState initSubscribers = new InitiateSubscribersState();
-    protected final OpeningState openingState = new OpeningState();
-    protected final OpenedState openedState = new OpenedState();
-    protected final InitiateCloseState initCloseState = new InitiateCloseState();
-    protected final ClosingState closingState = new ClosingState();
-    protected final ClosedState closedState = new ClosedState();
+    // thread-safe data structure for iteration by subscription executors from another thread
+    protected final List<EventSubscriber> subscribersList = new CopyOnWriteArrayList<>();
 
-    protected static final int TRANSITION_DEFAULT = 0;
-    protected static final int TRANSITION_OPEN = 1;
-    protected static final int TRANSITION_CLOSE = 2;
-
-    protected final EventAcquisition acquisition;
-    protected final ZeebeClient client;
     protected final String topic;
+    protected final SubscriptionManager acquisition;
 
-    private final StateMachine<GroupContext> stateMachine = StateMachine.<GroupContext>builder((s) -> new GroupContext(s))
-        .initialState(initState)
-        .from(initState).take(TRANSITION_OPEN).to(determinePartitionsState)
+    protected CompletableActorFuture<EventSubscriberGroup> openFuture;
+    protected List<CompletableActorFuture<Void>> closeFutures = new ArrayList<>();
 
-        .from(determinePartitionsState).take(TRANSITION_DEFAULT).to(initSubscribers)
-        .from(determinePartitionsState).take(TRANSITION_CLOSE).to(closedState)
+    private volatile int state = STATE_OPENING;
 
-        .from(initSubscribers).take(TRANSITION_DEFAULT).to(openingState)
+    private static final int STATE_OPENING = 0;
+    private static final int STATE_OPEN = 1;
+    private static final int STATE_CLOSING = 2;
+    private static final int STATE_CLOSED = 3;
 
-        .from(openingState).take(TRANSITION_DEFAULT).to(openedState)
-        .from(openingState).take(TRANSITION_CLOSE).to(initCloseState)
-
-        .from(openedState).take(TRANSITION_CLOSE).to(initCloseState)
-
-        .from(initCloseState).take(TRANSITION_DEFAULT).to(closingState)
-        .from(initCloseState).take(TRANSITION_CLOSE).to(initCloseState)
-
-        .from(closingState).take(TRANSITION_DEFAULT).to(closedState)
-        .from(closingState).take(TRANSITION_CLOSE).to(closingState)
-
-        .from(closedState).take(TRANSITION_CLOSE).to(closedState)
-
-        .build();
-
-
-    private StateMachineAgent<GroupContext> stateMachineAgent = new StateMachineAgent<>(stateMachine);
-
-    public EventSubscriberGroup(EventAcquisition acquisition, ZeebeClient client, String topic)
+    public EventSubscriberGroup(
+            ActorControl actor,
+            ZeebeClientImpl client,
+            SubscriptionManager acquisition,
+            String topic)
     {
+        this.actor = actor;
         this.acquisition = acquisition;
         this.client = client;
         this.topic = topic;
-        acquisition.registerSubscriptionAsync(this);
     }
 
-    class InitState implements WaitState<GroupContext>
+    protected void open(CompletableActorFuture<EventSubscriberGroup> openFuture)
     {
+        this.openFuture = openFuture;
 
-        @Override
-        public void work(GroupContext context) throws Exception
+        final ActorFuture<Topics> topicsFuture = client.topics().getTopics().executeAsync();
+        actor.runOnCompletion(topicsFuture, (topics, failure) ->
         {
-            // wait for open command
-        }
-    }
+            // TODO: handle failure
+            final Optional<Topic> requestedTopic =
+                topics.getTopics()
+                    .stream()
+                    .filter(t -> topic.equals(t.getName()))
+                    .findFirst();
 
-    class DeterminePartitionsState implements State<GroupContext>
-    {
-
-        protected Future<Topics> topicsFuture;
-
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            if (topicsFuture == null)
+            if (requestedTopic.isPresent())
             {
-                requestTopics(context);
-                return 1;
+                final List<Partition> partitions = requestedTopic.get().getPartitions();
+
+                partitions.forEach(p -> openSubscriber(p.getId()));
             }
             else
             {
-                return determinePartitions(context);
-            }
-        }
-
-        @Override
-        public void onExit()
-        {
-            topicsFuture = null;
-        }
-
-        private void requestTopics(GroupContext context)
-        {
-            Loggers.SUBSCRIPTION_LOGGER.debug(LOG_MESSAGE_PREFIX + "Determining partitions of topic", EventSubscriberGroup.this);
-            topicsFuture = client.topics().getTopics().executeAsync();
-        }
-
-        private int determinePartitions(GroupContext context)
-        {
-            if (topicsFuture.isDone())
-            {
-                final Topics topics;
-                try
-                {
-                    topics = topicsFuture.get();
-                }
-                catch (Exception e)
-                {
-                    final String error = "Could not fetch topics";
-                    LOG.error(LOG_MESSAGE_PREFIX + error, EventSubscriberGroup.this, e);
-                    context.setCloseReason(error);
-
-                    context.take(TRANSITION_CLOSE);
-
-                    return 1;
-                }
-
-                final Optional<Topic> requestedTopic =
-                    topics.getTopics()
-                        .stream()
-                        .filter(t -> topic.equals(t.getName()))
-                        .findFirst();
-
-                if (requestedTopic.isPresent())
-                {
-                    partitions = requestedTopic.get().getPartitions();
-                    context.take(TRANSITION_DEFAULT);
-                }
-                else
-                {
-                    context.setCloseReason(String.format("Topic %s is not known", topic));
-
-                    context.take(TRANSITION_CLOSE);
-                }
-
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-        }
-    }
-
-    protected abstract T buildSubscriber(int partition);
-
-    class InitiateSubscribersState implements State<GroupContext>
-    {
-
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            LOG.debug(LOG_MESSAGE_PREFIX + "Subscribing to partitions {}", EventSubscriberGroup.this, partitions);
-            for (Partition partition : partitions)
-            {
-                final T subscriber = buildSubscriber(partition.getId());
-                subscribers.add(subscriber);
-                acquisition.addSubscriber(subscriber);
-            }
-
-            context.take(TRANSITION_DEFAULT);
-            return 1;
-        }
-    }
-
-    class OpeningState implements State<GroupContext>
-    {
-
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            boolean allOpened = true;
-            boolean anyClosed = false;
-
-            for (EventSubscriber subscription : subscribers)
-            {
-                allOpened &= subscription.isOpen();
-                anyClosed |= subscription.isClosed();
-            }
-
-            if (anyClosed)
-            {
-                context.setCloseReason("A subscriber closed unexpectedly.");
-                LOG.error(LOG_MESSAGE_PREFIX + "Closing unexpectedly", EventSubscriberGroup.this);
-
-                context.take(TRANSITION_CLOSE);
-                return 1;
-            }
-            if (allOpened)
-            {
-                LOG.debug(LOG_MESSAGE_PREFIX + "All subscribers opened", EventSubscriberGroup.this);
-                context.take(TRANSITION_DEFAULT);
-                return 1;
-            }
-
-            return 0;
-        }
-    }
-
-    class OpenedState implements State<GroupContext>
-    {
-
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            if (openFuture != null)
-            {
-                openFuture.complete(EventSubscriberGroup.this);
-                openFuture = null;
-            }
-
-            boolean anyClosed = false;
-            for (EventSubscriber subscription : subscribers)
-            {
-                anyClosed |= subscription.isClosed();
-            }
-
-            if (anyClosed)
-            {
-                context.setCloseReason("A subscriber closed unexpectedly.");
-                LOG.error(LOG_MESSAGE_PREFIX + "Closing unexpectedly", EventSubscriberGroup.this);
-
-                context.take(TRANSITION_CLOSE);
-                return 1;
-            }
-            else
-            {
-                // relax and wait for external commands
-                return 0;
-            }
-        }
-    }
-
-    class InitiateCloseState implements State<GroupContext>
-    {
-
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            for (EventSubscriber subscription : subscribers)
-            {
-                subscription.closeAsync();
-            }
-
-            context.take(TRANSITION_DEFAULT);
-
-            return 1;
-        }
-
-    }
-
-    class ClosingState implements State<GroupContext>
-    {
-        @Override
-        public int doWork(GroupContext context) throws Exception
-        {
-            boolean allClosed = true;
-            for (EventSubscriber subscription : subscribers)
-            {
-                allClosed &= subscription.isClosed();
-            }
-
-            if (allClosed)
-            {
-                context.take(TRANSITION_DEFAULT);
-                return 1;
-            }
-            else
-            {
-                return 0;
-            }
-        }
-
-        @Override
-        public void onExit()
-        {
-            for (EventSubscriber subscriber : subscribers)
-            {
-                acquisition.removeSubscriber(subscriber);
-            }
-        }
-    }
-
-    class ClosedState implements WaitState<GroupContext>
-    {
-
-        @Override
-        public void work(GroupContext context) throws Exception
-        {
-            if (openFuture != null)
-            {
-                final String reason = String.format("Could not create subscriber group %s: %s", describeGroupSpec(), context.getCloseReason());
-                openFuture.completeExceptionally(new ClientException(reason));
-                openFuture = null;
-            }
-            if (closeFuture != null)
-            {
-                closeFuture.complete(EventSubscriberGroup.this);
-                closeFuture = null;
-            }
-
-            acquisition.stopManageGroup(EventSubscriberGroup.this);
-        }
-    }
-
-    public CompletableFuture<EventSubscriberGroup<T>> closeAsync()
-    {
-        final CompletableFuture<EventSubscriberGroup<T>> closeFuture = new CompletableFuture<>();
-
-        if (isClosed())
-        {
-            // if closed, the state machine is no longer managed, so state transitions won't be picked up
-            closeFuture.complete(this);
-            return closeFuture;
-        }
-
-        stateMachineAgent.addCommand(s ->
-        {
-            final boolean success = s.tryTake(TRANSITION_CLOSE);
-            if (success)
-            {
-                if (this.closeFuture == null)
-                {
-                    this.closeFuture = closeFuture;
-                }
-                else
-                {
-                    this.closeFuture.whenComplete((v, t) ->
-                    {
-                        if (t == null)
-                        {
-                            closeFuture.complete(v);
-                        }
-                        else
-                        {
-                            closeFuture.completeExceptionally(t);
-                        }
-                    });
-                }
-            }
-            else
-            {
-                closeFuture.cancel(true);
+                // TODO: close wiht reason Topic %s is not known
+                // TODO: closing exception should also contain the description of the group (=> see EventSubscriberGroup#describeGroupSpec)
             }
         });
+    }
 
-        return closeFuture;
+
+    public void doClose(final CompletableActorFuture<Void> closeFuture)
+    {
+        if (state == STATE_OPENING || state == STATE_CLOSING)
+        {
+            this.closeFutures.add(closeFuture);
+        }
+        else if (state == STATE_CLOSED)
+        {
+            closeFuture.complete(null);
+        }
+        else if (state == STATE_OPEN)
+        {
+            this.closeFutures.add(closeFuture);
+            state = STATE_CLOSING;
+
+            subscribersList.forEach(subscriber -> closeSubscriber(subscriber));
+        }
+    }
+
+    private void onGroupClosed()
+    {
+        if (openFuture != null)
+        {
+            // TODO: proper context-based exception and message
+            openFuture.completeExceptionally(new RuntimeException("could not open subscriber group"));
+            openFuture = null;
+        }
+
+        closeFutures.forEach(f -> f.complete(null));
+        closeFutures.clear();
+    }
+
+    private void onGroupOpened()
+    {
+        if (openFuture != null)
+        {
+            openFuture.complete(this);
+            openFuture = null;
+        }
+
+        if (!closeFutures.isEmpty())
+        {
+            doClose(null);
+        }
+    }
+
+    public ActorFuture<Void> closeAsync()
+    {
+
+        return acquisition.closeGroup(this);
+    }
+
+    public void reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
+    {
+        final Iterator<EventSubscriber> it = subscribersList.iterator();
+
+        while (it.hasNext())
+        {
+            final EventSubscriber subscriber = it.next();
+            if (subscriber.getEventSource().equals(remoteAddress))
+            {
+                subscriber.disable();
+                onSubscriberClosed(subscriber);
+
+                if (state == STATE_OPEN)
+                {
+                    openSubscriber(subscriber.getPartitionId());
+                }
+            }
+        }
     }
 
     public void close()
@@ -406,86 +169,131 @@ public abstract class EventSubscriberGroup<T extends EventSubscriber>
         }
     }
 
-    public void open()
+    private void openSubscriber(int partitionId)
     {
-        try
-        {
-            openAsync().get();
-        }
-        catch (Exception e)
-        {
-            throw new ClientException("Could not open subscription: " + e.getMessage(), e);
-        }
-    }
+        // TODO: must tell the acquisition that we are opening a new subscriber
+        //   as it may receive events for it before it has the subscriber in hand
 
-    public CompletableFuture<EventSubscriberGroup<T>> openAsync()
-    {
-        final CompletableFuture<EventSubscriberGroup<T>> openFuture = new CompletableFuture<>();
-        stateMachineAgent.addCommand(s ->
+        System.out.println("Opening subscriber to partition " + partitionId);
+
+        this.subscriberState.put(partitionId, SubscriberState.SUBSCRIBING);
+        final ActorFuture<? extends EventSubscriptionCreationResult> future = requestNewSubscriber(partitionId);
+        // TODO: must deal with the case when the #close-Command is received intermittently
+        actor.runOnCompletion(future, (result, throwable) ->
         {
-            final boolean success = s.tryTake(TRANSITION_OPEN);
-            if (success)
+            if (throwable == null)
             {
-                this.openFuture = openFuture;
+                onSubscriberOpened(result);
             }
             else
             {
-                openFuture.cancel(true);
+                onSubscriberOpenFailed(partitionId, throwable);
             }
         });
-
-        return openFuture;
     }
 
-    public boolean isOpen()
+    private void closeSubscriber(EventSubscriber subscriber)
     {
-        return stateMachine.isInState(openedState);
-    }
+        subscriber.disable();
+        subscriberState.put(subscriber.getPartitionId(), SubscriberState.UNSUBSCRIBING);
 
-    public boolean isOpening()
-    {
-        return stateMachine.isInState(openingState);
-    }
-
-    public boolean isClosed()
-    {
-        return stateMachine.isInState(closedState);
-    }
-
-    public int maintainState()
-    {
-        int workCount = stateMachineAgent.doWork();
-
-        for (EventSubscriber subscription : subscribers)
+        actor.runUntilDone(() ->
         {
-            workCount += subscription.maintainState();
-        }
-
-        return workCount;
-    }
-
-    public abstract boolean isManagedGroup();
-
-    public void reopenSubscribersForRemote(RemoteAddress remoteAddress)
-    {
-        for (EventSubscriber subscription : subscribers)
-        {
-            // s.getEventSource is null if the subscription is not yet opened
-            if (remoteAddress.equals(subscription.getEventSource()))
+            if (!subscriber.hasEventsInProcessing())
             {
-                subscription.reopenAsync();
+                final ActorFuture<Void> closeSubscriberFuture = subscriber.requestSubscriptionClose();
+                actor.runOnCompletion(closeSubscriberFuture, (v, t) ->
+                {
+                    // TODO: what to do on exception?
+                    onSubscriberClosed(subscriber);
+                });
+                actor.done();
             }
+            else
+            {
+                actor.yield();
+            }
+        });
+    }
+
+
+    private void onSubscriberOpenFailed(int partitionId, Throwable t)
+    {
+        // TODO: exception handling
+        System.out.println("Opening subscriber failed; Closing group");
+        subscriberState.put(partitionId, SubscriberState.NOT_SUBSCRIBED);
+
+        if (!checkGroupClosed())
+        {
+            doClose(null);
         }
     }
 
-    public abstract int poll();
+    private void onSubscriberOpened(EventSubscriptionCreationResult result)
+    {
+        System.out.println("Subscriber opened successfully");
 
-    protected abstract String describeGroupSpec();
+        final EventSubscriber subscriber = buildSubscriber(result);
+        subscriberState.put(subscriber.getPartitionId(), SubscriberState.SUBSCRIBED);
+
+        subscribersList.add(subscriber);
+        acquisition.addSubscriber(subscriber);
+
+        if (state == STATE_OPENING && allPartitionsSubscribed())
+        {
+            state = STATE_OPEN;
+            onGroupOpened();
+        }
+        else if (state == STATE_CLOSING)
+        {
+            closeSubscriber(subscriber);
+        }
+    }
+
+    private void onSubscriberClosed(EventSubscriber subscriber)
+    {
+        acquisition.removeSubscriber(subscriber);
+        subscriberState.put(subscriber.getPartitionId(), SubscriberState.NOT_SUBSCRIBED);
+        subscribersList.add(subscriber);
+        acquisition.removeSubscriber(subscriber);
+
+        checkGroupClosed();
+    }
+
+    private boolean checkGroupClosed()
+    {
+        if (state == STATE_CLOSING && allPartitionsNotSubscribed())
+        {
+            state = STATE_CLOSED;
+            onGroupClosed();
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    private boolean allPartitionsSubscribed()
+    {
+        return allPartitionsInSubscriberState(SubscriberState.SUBSCRIBED);
+    }
+
+    private boolean allPartitionsNotSubscribed()
+    {
+        return allPartitionsInSubscriberState(SubscriberState.NOT_SUBSCRIBED);
+    }
+
+    private boolean allPartitionsInSubscriberState(SubscriberState state)
+    {
+        return subscriberState.values().stream().allMatch(s -> s == state);
+    }
+
 
     public int pollEvents(CheckedConsumer<GeneralEventImpl> pollHandler)
     {
         int events = 0;
-        for (EventSubscriber subscriber : subscribers)
+        for (EventSubscriber subscriber : subscribersList)
         {
             events += subscriber.pollEvents(pollHandler);
         }
@@ -493,64 +301,27 @@ public abstract class EventSubscriberGroup<T extends EventSubscriber>
         return events;
     }
 
-    public int size()
+    public boolean isOpen()
     {
-        int events = 0;
-        for (EventSubscriber subscriber : subscribers)
-        {
-            events += subscriber.size();
-        }
-
-        return events;
+        return state == STATE_OPEN;
     }
 
-    /**
-     * exposing internal state; for testing only
-     */
-    public List<T> getSubscribers()
+    public boolean isClosed()
     {
-        final CompletableFuture<List<T>> result = new CompletableFuture<>();
-        stateMachineAgent.addCommand(c ->
-        {
-            result.complete(new ArrayList<>(subscribers));
-        });
-
-        try
-        {
-            return result.get();
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        return state == STATE_CLOSED;
     }
 
-    @Override
-    public String toString()
+    public abstract int poll();
+
+    protected abstract ActorFuture<? extends EventSubscriptionCreationResult> requestNewSubscriber(int partitionId);
+
+    protected abstract EventSubscriber buildSubscriber(EventSubscriptionCreationResult result);
+
+    public abstract boolean isManagedGroup();
+
+    enum SubscriberState
     {
-        return describeGroupSpec();
+        NOT_SUBSCRIBED, UNSUBSCRIBING, SUBSCRIBING, SUBSCRIBED;
     }
-
-    protected static class GroupContext extends SimpleStateMachineContext
-    {
-        private String closeReason;
-
-        public GroupContext(StateMachine<?> stateMachine)
-        {
-            super(stateMachine);
-        }
-
-        public void setCloseReason(String closeReason)
-        {
-            this.closeReason = closeReason;
-        }
-
-        public String getCloseReason()
-        {
-            return closeReason;
-        }
-
-    }
-
 
 }
