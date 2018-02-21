@@ -63,7 +63,6 @@ import io.zeebe.test.broker.protocol.brokerapi.ExecuteCommandRequest;
 import io.zeebe.test.broker.protocol.brokerapi.StubBrokerRule;
 import io.zeebe.test.util.TestUtil;
 import io.zeebe.transport.RemoteAddress;
-import io.zeebe.util.time.ClockUtil;
 
 public class TaskSubscriptionTest
 {
@@ -95,7 +94,6 @@ public class TaskSubscriptionTest
     @After
     public void after()
     {
-        ClockUtil.reset();
         continueTaskHandlingThreads();
     }
 
@@ -674,7 +672,7 @@ public class TaskSubscriptionTest
         // when
         broker.closeTransport();
         Thread.sleep(500L); // let subscriber attempt reopening
-        ClockUtil.addTime(Duration.ofSeconds(60)); // make request time out immediately
+        clientRule.getClock().addTime(Duration.ofSeconds(60)); // make request time out immediately
 
         // then
         TestUtil.waitUntil(() -> subscription.isClosed());

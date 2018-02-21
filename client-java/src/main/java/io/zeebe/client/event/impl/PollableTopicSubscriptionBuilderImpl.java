@@ -49,7 +49,7 @@ public class PollableTopicSubscriptionBuilderImpl implements PollableTopicSubscr
         }
         catch (InterruptedException | ExecutionException e)
         {
-            throw new ClientException("Could not open topic subscription", e);
+            throw new ClientException("Could not open subscription", e);
         }
     }
 

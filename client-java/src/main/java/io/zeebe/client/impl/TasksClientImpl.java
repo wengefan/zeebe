@@ -31,6 +31,8 @@ import io.zeebe.client.task.impl.CreateTaskSubscriptionCommandImpl;
 import io.zeebe.client.task.impl.FailTaskCommandImpl;
 import io.zeebe.client.task.impl.IncreaseTaskSubscriptionCreditsCmdImpl;
 import io.zeebe.client.task.impl.UpdateRetriesCommandImpl;
+import io.zeebe.client.task.impl.subscription.PollableTaskSubscriptionBuilderImpl;
+import io.zeebe.client.task.impl.subscription.TaskSubscriptionBuilderImpl;
 
 public class TasksClientImpl implements TasksClient
 {
@@ -68,13 +70,19 @@ public class TasksClientImpl implements TasksClient
     @Override
     public TaskSubscriptionBuilder newTaskSubscription(String topic)
     {
-        return client.getSubscriptionManager().newTaskSubscription(client, topic);
+        return new TaskSubscriptionBuilderImpl(
+                client,
+                topic,
+                client.getEventAcquisition());
     }
 
     @Override
     public PollableTaskSubscriptionBuilder newPollableTaskSubscription(String topic)
     {
-        return client.getSubscriptionManager().newPollableTaskSubscription(client, topic);
+        return new PollableTaskSubscriptionBuilderImpl(
+                client,
+                topic,
+                client.getEventAcquisition());
     }
 
     public CreateTaskSubscriptionCommandImpl createTaskSubscription(int partitionId)
@@ -82,6 +90,7 @@ public class TasksClientImpl implements TasksClient
         return new CreateTaskSubscriptionCommandImpl(client.getCommandManager(), partitionId);
     }
 
+    // TODO: wofür gibt es das?
     public CreateTaskSubscriptionCommandImpl createTaskSubscription(String topic)
     {
         return new CreateTaskSubscriptionCommandImpl(client.getCommandManager(), topic);

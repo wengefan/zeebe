@@ -18,12 +18,13 @@ package io.zeebe.client.event.impl;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
-import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.client.task.impl.subscription.EventSubscriber;
 import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
 public class TopicSubscriber extends EventSubscriber
 {
@@ -101,16 +102,18 @@ public class TopicSubscriber extends EventSubscriber
         // TODO: das hier muss woanders hin bzw. mit dem Future komponiert werden
         acknowledgeLastProcessedEvent();
 
+
+
         return client.closeTopicSubscription(partitionId, subscriberKey).executeAsync();
     }
 
     @Override
-    protected void requestEventSourceReplenishment(int eventsProcessed)
+    protected ActorFuture<?> requestEventSourceReplenishment(int eventsProcessed)
     {
-        acknowledgeLastProcessedEvent();
+        return acknowledgeLastProcessedEvent();
     }
 
-    protected void acknowledgeLastProcessedEvent()
+    protected ActorFuture<?> acknowledgeLastProcessedEvent()
     {
 
         // note: it is important we read lastProcessedEventPosition only once
@@ -120,12 +123,19 @@ public class TopicSubscriber extends EventSubscriber
         if (positionToAck > lastAcknowledgedPosition)
         {
             // TODO: what to do on error here? close the group (but only if it is not already closing)
-            client.acknowledgeEvent(subscription.getTopic(), partitionId)
+            final ActorFuture<TopicSubscriptionEvent> future = client.acknowledgeEvent(subscription.getTopic(), partitionId)
                 .subscriptionName(subscription.getName())
                 .ackPosition(positionToAck)
                 .executeAsync();
 
+            // record this immediately to avoid repeated requests for the same position
             lastAcknowledgedPosition = positionToAck;
+
+            return future;
+        }
+        else
+        {
+            return CompletableActorFuture.<Void>completed(null);
         }
     }
 

@@ -15,29 +15,28 @@
  */
 package io.zeebe.client.task.impl.subscription;
 
-import io.zeebe.client.ZeebeClient;
 import io.zeebe.client.impl.TasksClientImpl;
-import io.zeebe.client.impl.data.MsgPackMapper;
+import io.zeebe.client.impl.ZeebeClientImpl;
 import io.zeebe.client.task.PollableTaskSubscription;
 import io.zeebe.client.task.TaskHandler;
 import io.zeebe.client.task.TaskSubscription;
+import io.zeebe.util.sched.ActorControl;
+import io.zeebe.util.sched.future.ActorFuture;
 
 public class TaskSubscriberGroup extends EventSubscriberGroup<TaskSubscriber> implements
     TaskSubscription, PollableTaskSubscription
 {
 
     protected final TaskSubscriptionSpec subscription;
-    protected final MsgPackMapper msgPackMapper;
 
     public TaskSubscriberGroup(
-            ZeebeClient client,
+            ActorControl actor,
+            ZeebeClientImpl client,
             SubscriptionManager acquisition,
-            TaskSubscriptionSpec subscription,
-            MsgPackMapper msgPackMapper)
+            TaskSubscriptionSpec subscription)
     {
-        super(acquisition, client, subscription.getTopic());
+        super(actor, client, acquisition, subscription.getTopic());
         this.subscription = subscription;
-        this.msgPackMapper = msgPackMapper;
     }
 
     @Override
@@ -50,7 +49,7 @@ public class TaskSubscriberGroup extends EventSubscriberGroup<TaskSubscriber> im
     public int poll(TaskHandler taskHandler)
     {
         int workCount = 0;
-        for (TaskSubscriber subscriber : subscribers)
+        for (TaskSubscriber subscriber : subscribersList)
         {
             workCount += subscriber.pollEvents(taskHandler);
         }
@@ -59,21 +58,41 @@ public class TaskSubscriberGroup extends EventSubscriberGroup<TaskSubscriber> im
     }
 
     @Override
-    protected TaskSubscriber buildSubscriber(int partition)
-    {
-        return new TaskSubscriber((TasksClientImpl) client.tasks(), subscription, partition, msgPackMapper, acquisition);
-    }
-
-    @Override
     public boolean isManagedGroup()
     {
         return subscription.isManaged();
     }
 
+    // TODO: what was this used for?
+//    @Override
+//    protected String describeGroupSpec()
+//    {
+//        return subscription.toString();
+//    }
+
     @Override
-    protected String describeGroupSpec()
+    protected ActorFuture<? extends EventSubscriptionCreationResult> requestNewSubscriber(int partitionId)
     {
-        return subscription.toString();
+        return client.tasks().createTaskSubscription(partitionId)
+                .taskType(subscription.getTaskType())
+                .lockDuration(subscription.getLockTime())
+                .lockOwner(subscription.getLockOwner())
+                .initialCredits(subscription.getCapacity())
+                .executeAsync();
+    }
+
+    @Override
+    protected TaskSubscriber buildSubscriber(EventSubscriptionCreationResult result)
+    {
+        return new TaskSubscriber(
+                (TasksClientImpl) client.tasks(),
+                subscription,
+                result.getSubscriberKey(),
+                result.getEventPublisher(),
+                result.getPartitionId(),
+                this,
+                client.getMsgPackMapper(),
+                acquisition);
     }
 
 }

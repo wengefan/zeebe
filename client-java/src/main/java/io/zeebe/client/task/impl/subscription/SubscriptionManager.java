@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 
 import io.zeebe.client.event.EventMetadata;
 import io.zeebe.client.event.impl.GeneralEventImpl;
+import io.zeebe.client.event.impl.TopicSubscriber;
 import io.zeebe.client.event.impl.TopicSubscriberGroup;
 import io.zeebe.client.event.impl.TopicSubscriptionSpec;
 import io.zeebe.client.impl.Loggers;
@@ -71,7 +72,7 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
     {
         for (int i = 0; i < numThreads; i++)
         {
-            final SubscriptionExecutor executor = new SubscriptionExecutor(topicSubscribers);
+            final SubscriptionExecutor executor = new SubscriptionExecutor(topicSubscribers, taskSubscribers);
             final AgentRunner agentRunner = initAgentRunner(executor);
             AgentRunner.startOnThread(agentRunner);
 
@@ -101,14 +102,29 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
         stopSubscriptionExecution();
     }
 
-    public ActorFuture<EventSubscriberGroup> openTopicSubscription(TopicSubscriptionSpec spec)
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    public ActorFuture<TopicSubscriberGroup> openTopicSubscription(TopicSubscriptionSpec spec)
     {
-        final CompletableActorFuture<EventSubscriberGroup> future = new CompletableActorFuture<>();
+        final CompletableActorFuture<TopicSubscriberGroup> future = new CompletableActorFuture<>();
         actor.call(() ->
         {
-            final EventSubscriberGroup group = new TopicSubscriberGroup(actor, client, this, spec);
+            final TopicSubscriberGroup group = new TopicSubscriberGroup(actor, client, this, spec);
             topicSubscribers.addGroup(group);
-            group.open(future);
+            group.open((CompletableActorFuture) future);
+        });
+
+        return future;
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    public ActorFuture<TaskSubscriberGroup> openTaskSubscription(TaskSubscriptionSpec spec)
+    {
+        final CompletableActorFuture<TaskSubscriberGroup> future = new CompletableActorFuture<>();
+        actor.call(() ->
+        {
+            final TaskSubscriberGroup group = new TaskSubscriberGroup(actor, client, this, spec);
+            taskSubscribers.addGroup(group);
+            group.open((CompletableActorFuture) future);
         });
 
         return future;
@@ -122,27 +138,45 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
 
     public void addSubscriber(EventSubscriber subscriber)
     {
-        // TODO: distinguish task and topic subscribers
-        topicSubscribers.add(subscriber);
+        if (subscriber instanceof TopicSubscriber)
+        {
+            topicSubscribers.add(subscriber);
+        }
+        else
+        {
+            taskSubscribers.add(subscriber);
+        }
 
     }
 
     public void removeSubscriber(EventSubscriber subscriber)
     {
-        topicSubscribers.remove(subscriber);
+        if (subscriber instanceof TopicSubscriber)
+        {
+            topicSubscribers.remove(subscriber);
+        }
+        else
+        {
+            taskSubscribers.remove(subscriber);
+        }
     }
 
     public void closeAllSubscribers()
     {
         topicSubscribers.closeAllGroups();
+        taskSubscribers.closeAllGroups();
     }
 
     public ActorFuture<Void> reopenSubscriptionsForRemoteAsync(RemoteAddress remoteAddress)
     {
-        return actor.call(() -> topicSubscribers.reopenSubscribersForRemote(remoteAddress));
+        return actor.call(() ->
+        {
+            topicSubscribers.reopenSubscribersForRemote(remoteAddress);
+            taskSubscribers.reopenSubscribersForRemote(remoteAddress);
+        });
     }
 
-    public ActorFuture<Void> closeGroup(EventSubscriberGroup group)
+    public ActorFuture<Void> closeGroup(EventSubscriberGroup<?> group)
     {
         final CompletableActorFuture<Void> closeFuture = new CompletableActorFuture<>();
         actor.call(() -> group.doClose(closeFuture));
@@ -155,11 +189,30 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
         final EventMetadata eventMetadata = event.getMetadata();
         // TODO: make work with task subscribers
 
-        EventSubscriber subscriber = topicSubscribers.getSubscriber(eventMetadata.getPartitionId(), subscriberKey);
+        final EventSubscribers subscribers;
 
-        if (subscriber == null)
+        if (type == SubscriptionType.TASK_SUBSCRIPTION)
         {
-            // TODO: restore this logic
+            subscribers = taskSubscribers;
+        }
+        else if (type == SubscriptionType.TOPIC_SUBSCRIPTION)
+        {
+            subscribers = topicSubscribers;
+        }
+        else
+        {
+            subscribers = null;
+        }
+
+        EventSubscriber subscriber = null;
+
+        if (subscribers != null)
+        {
+            subscriber = subscribers.getSubscriber(eventMetadata.getPartitionId(), subscriberKey);
+
+            if (subscriber == null)
+            {
+                // TODO: restore this logic
 //            if (subscribers.isAnySubscriberOpening())
 //            {
 //                // avoids a race condition when a subscribe request is in progress and we haven't activated the subscriber
@@ -173,8 +226,8 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
                 // invocation and the check for opening subscribers
                 subscriber = topicSubscribers.getSubscriber(eventMetadata.getPartitionId(), subscriberKey);
 //            }
+            }
         }
-
 
         if (subscriber != null && subscriber.isOpen())
         {
@@ -183,7 +236,8 @@ public class SubscriptionManager extends ZbActor implements SubscribedEventHandl
         }
         else
         {
-            LOGGER.debug("Event Acquisition: Ignoring event " + event.toString() + " for subscription " + subscriberKey);
+            LOGGER.debug("Ignoring event event %s for subscription [type=%s, partition=%s, key=%s]",
+                    event, type, event.getMetadata().getPartitionId(), subscriberKey);
             return true; // ignoring the event is success; don't want to retry it later
         }
     }

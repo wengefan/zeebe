@@ -24,6 +24,7 @@ import io.zeebe.client.event.impl.GeneralEventImpl;
 import io.zeebe.client.impl.Loggers;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.util.CheckedConsumer;
+import io.zeebe.util.sched.ActorCondition;
 import io.zeebe.util.sched.future.ActorFuture;
 
 public abstract class EventSubscriber
@@ -38,7 +39,7 @@ public abstract class EventSubscriber
     protected final ManyToManyConcurrentArrayQueue<GeneralEventImpl> pendingEvents;
     protected final int capacity;
     protected final SubscriptionManager acquisition;
-    protected final EventSubscriberGroup group;
+    protected final EventSubscriberGroup<?> group;
 
     protected RemoteAddress eventSource;
     protected int partitionId;
@@ -46,11 +47,14 @@ public abstract class EventSubscriber
     protected final AtomicInteger eventsInProcessing = new AtomicInteger(0);
     protected final AtomicInteger eventsProcessedSinceLastReplenishment = new AtomicInteger(0);
 
+    private final ActorCondition replenishmentTrigger;
+
     private volatile int state;
 
     private static final int STATE_OPEN = 0;
     private static final int STATE_DISABLED = 1; // required to immediately disable a subscriber and stop processing further events
 
+    @SuppressWarnings("unchecked")
     public EventSubscriber(
             long subscriberKey,
             int partitionId,
@@ -67,6 +71,7 @@ public abstract class EventSubscriber
         this.acquisition = acquisition;
         this.partitionId = partitionId;
         this.state = STATE_OPEN;
+        this.replenishmentTrigger = group.buildReplenishmentTrigger(this);
     }
 
     public RemoteAddress getEventSource()
@@ -84,20 +89,22 @@ public abstract class EventSubscriber
         return pendingEvents.size();
     }
 
-    protected boolean replenishEventSource()
+    protected ActorFuture<?> replenishEventSource()
     {
         final int eventsProcessed = eventsProcessedSinceLastReplenishment.get();
-        final int remainingCapacity = capacity - eventsProcessed;
+//        final int remainingCapacity = capacity - eventsProcessed;
+//
+//        final boolean requestReplenishment = remainingCapacity < capacity * REPLENISHMENT_THRESHOLD;
 
-        final boolean requestReplenishment = remainingCapacity < capacity * REPLENISHMENT_THRESHOLD;
+//        if (requestReplenishment)
+//        {
+        final ActorFuture<?> future = requestEventSourceReplenishment(eventsProcessed);
+        eventsProcessedSinceLastReplenishment.addAndGet(-eventsProcessed);
 
-        if (requestReplenishment)
-        {
-            requestEventSourceReplenishment(eventsProcessed);
-            eventsProcessedSinceLastReplenishment.addAndGet(-eventsProcessed);
-        }
-
-        return requestReplenishment;
+        return future;
+//        }
+//
+//        return requestReplenishment;
     }
 
     public long getSubscriberKey()
@@ -105,7 +112,7 @@ public abstract class EventSubscriber
         return subscriberKey;
     }
 
-    protected abstract void requestEventSourceReplenishment(int eventsProcessed);
+    protected abstract ActorFuture<?> requestEventSourceReplenishment(int eventsProcessed);
 
     public boolean addEvent(GeneralEventImpl event)
     {
@@ -185,10 +192,23 @@ public abstract class EventSubscriber
             {
                 eventsInProcessing.decrementAndGet();
                 eventsProcessedSinceLastReplenishment.incrementAndGet();
+
+                if (shouldReplenish())
+                {
+                    replenishmentTrigger.signal();
+                }
             }
         }
 
         return handledEvents;
+    }
+
+    private boolean shouldReplenish()
+    {
+        final int eventsProcessed = eventsProcessedSinceLastReplenishment.get();
+        final int remainingCapacity = capacity - eventsProcessed;
+
+        return remainingCapacity < capacity * REPLENISHMENT_THRESHOLD;
     }
 
     protected void logHandling(GeneralEventImpl event)

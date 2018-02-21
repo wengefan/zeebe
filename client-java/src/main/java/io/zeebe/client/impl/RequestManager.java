@@ -277,6 +277,11 @@ public class RequestManager
             }
             else if (errorHandler.handlesResponse(headerDecoder))
             {
+                errorHandler.wrap(responseContent,
+                        headerDecoder.encodedLength(),
+                        headerDecoder.blockLength(),
+                        headerDecoder.version());
+
                 final ErrorCode errorCode = errorHandler.getErrorCode();
 
                 if (errorCode != ErrorCode.NULL_VAL)

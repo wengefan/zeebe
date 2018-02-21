@@ -39,16 +39,20 @@ public class TopicClientImpl implements TopicsClient
     @Override
     public TopicSubscriptionBuilder newSubscription(String topicName)
     {
-        // TODO: können das hier auch in die Acquisition tun
         return new TopicSubscriptionBuilderImpl(
-                topicName, client.getEventAcquisition(), client.getMsgPackMapper(), client.getSubscriptionPrefetchCapacity());
+                topicName,
+                client.getEventAcquisition(),
+                client.getMsgPackMapper(),
+                client.getSubscriptionPrefetchCapacity());
     }
 
     @Override
     public PollableTopicSubscriptionBuilder newPollableSubscription(String topicName)
     {
         return new PollableTopicSubscriptionBuilderImpl(
-                topicName, client.getEventAcquisition(), client.getSubscriptionPrefetchCapacity());
+                topicName,
+                client.getEventAcquisition(),
+                client.getSubscriptionPrefetchCapacity());
     }
 
     @Override

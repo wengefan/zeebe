@@ -21,15 +21,15 @@ import io.zeebe.client.event.PollableTopicSubscription;
 import io.zeebe.client.event.TopicSubscription;
 import io.zeebe.client.event.UniversalEventHandler;
 import io.zeebe.client.impl.ZeebeClientImpl;
-import io.zeebe.client.task.impl.subscription.SubscriptionManager;
-import io.zeebe.client.task.impl.subscription.EventSubscriber;
 import io.zeebe.client.task.impl.subscription.EventSubscriberGroup;
 import io.zeebe.client.task.impl.subscription.EventSubscriptionCreationResult;
+import io.zeebe.client.task.impl.subscription.SubscriptionManager;
 import io.zeebe.util.CheckedConsumer;
 import io.zeebe.util.sched.ActorControl;
 import io.zeebe.util.sched.future.ActorFuture;
+import io.zeebe.util.sched.future.CompletableActorFuture;
 
-public class TopicSubscriberGroup extends EventSubscriberGroup //<TopicSubscriber>
+public class TopicSubscriberGroup extends EventSubscriberGroup<TopicSubscriber>
     implements TopicSubscription, PollableTopicSubscription
 {
 
@@ -101,8 +101,44 @@ public class TopicSubscriberGroup extends EventSubscriberGroup //<TopicSubscribe
     }
 
     @Override
-    protected EventSubscriber buildSubscriber(EventSubscriptionCreationResult result)
+    protected TopicSubscriber buildSubscriber(EventSubscriptionCreationResult result)
     {
-        return new TopicSubscriber(client.topics(), subscription, result.getSubscriberKey(), result.getEventPublisher(), result.getPartitionId(), this, acquisition);
+        return new TopicSubscriber(
+                client.topics(),
+                subscription,
+                result.getSubscriberKey(),
+                result.getEventPublisher(),
+                result.getPartitionId(),
+                this,
+                acquisition);
+    }
+
+    @Override
+    protected ActorFuture<Void> doCloseSubscriber(TopicSubscriber subscriber)
+    {
+        final ActorFuture<?> ackFuture = subscriber.acknowledgeLastProcessedEvent();
+
+        final CompletableActorFuture<Void> closeFuture = new CompletableActorFuture<>();
+        actor.runOnCompletion(ackFuture, (ackResult, ackThrowable) ->
+        {
+            if (ackThrowable != null)
+            {
+                // TODO: Log failure
+            }
+
+            final ActorFuture<Void> closeRequestFuture = subscriber.requestSubscriptionClose();
+            actor.runOnCompletion(closeRequestFuture, (closeResult, closeThrowable) ->
+            {
+                if (closeThrowable == null)
+                {
+                    closeFuture.complete(closeResult);
+                }
+                else
+                {
+                    closeFuture.completeExceptionally(closeThrowable);
+                }
+            });
+        });
+        return closeFuture;
     }
 }
