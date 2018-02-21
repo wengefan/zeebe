@@ -76,7 +76,7 @@ public class Broker implements AutoCloseable
         brokerContext.addComponent(new LogStreamsComponent());
         brokerContext.addComponent(new TaskQueueComponent());
         brokerContext.addComponent(new WorkflowComponent());
-        brokerContext.addComponent(new ClusterComponent());
+//        brokerContext.addComponent(new ClusterComponent());
 
         brokerContext.init();
     }
