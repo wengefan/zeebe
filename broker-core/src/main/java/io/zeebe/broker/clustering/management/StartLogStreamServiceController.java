@@ -64,13 +64,20 @@ public class StartLogStreamServiceController extends ZbActor
     @Override
     protected void onActorStarted()
     {
-        raft.registerRaftStateListener(onLeaderListener);
+        if (raft.getState().equals(RaftState.LEADER))
+        {
+            actor.submit(this::startLogStream);
+        }
+        else
+        {
+            raft.registerRaftStateListener(onLeaderListener);
+        }
+
         actor.onCondition("alive-start-logstream-ctrl", () -> { });
     }
 
     private void startLogStream()
     {
-
         Loggers.CLUSTERING_LOGGER.debug("Start log stream...topic {}", BufferUtil.bufferAsString(raft.getLogStream().getTopicName()));
         final LogStream logStream = raft.getLogStream();
         final LogStreamService service = new LogStreamService(logStream);
