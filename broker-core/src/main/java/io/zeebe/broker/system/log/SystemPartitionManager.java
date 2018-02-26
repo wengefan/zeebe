@@ -134,6 +134,7 @@ public class SystemPartitionManager implements Service<SystemPartitionManager>
 
     private void removeSystemPartition()
     {
+        Loggers.SYSTEM_LOGGER.debug("Remove");
         partitionResponderRef.set(null);
     }
 

@@ -17,9 +17,6 @@
  */
 package io.zeebe.broker.system.log;
 
-import java.util.Iterator;
-
-import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.management.PartitionManager;
 import io.zeebe.broker.clustering.member.Member;
 import io.zeebe.broker.logstreams.processor.TypedEvent;
@@ -29,6 +26,8 @@ import io.zeebe.broker.system.log.PendingPartitionsIndex.PendingPartition;
 import io.zeebe.util.CloseableSilently;
 import io.zeebe.util.collection.IntIterator;
 import io.zeebe.util.time.ClockUtil;
+
+import java.util.Iterator;
 
 public class ResolvePendingPartitionsCommand implements Runnable, CloseableSilently
 {

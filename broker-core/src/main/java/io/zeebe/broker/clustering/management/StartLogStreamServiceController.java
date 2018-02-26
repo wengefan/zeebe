@@ -17,6 +17,7 @@
  */
 package io.zeebe.broker.clustering.management;
 
+import io.zeebe.broker.Loggers;
 import io.zeebe.broker.logstreams.LogStreamService;
 import io.zeebe.broker.logstreams.LogStreamServiceNames;
 import io.zeebe.logstreams.log.LogStream;
@@ -27,6 +28,7 @@ import io.zeebe.raft.state.RaftState;
 import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.ServiceName;
 import io.zeebe.transport.SocketAddress;
+import io.zeebe.util.buffer.BufferUtil;
 import io.zeebe.util.sched.ZbActor;
 import org.agrona.DirectBuffer;
 
@@ -62,13 +64,14 @@ public class StartLogStreamServiceController extends ZbActor
     @Override
     protected void onActorStarted()
     {
-        actor.run(this::startLogStream);
+        raft.registerRaftStateListener(onLeaderListener);
         actor.onCondition("alive-start-logstream-ctrl", () -> { });
     }
 
     private void startLogStream()
     {
 
+        Loggers.CLUSTERING_LOGGER.debug("Start log stream...topic {}", BufferUtil.bufferAsString(raft.getLogStream().getTopicName()));
         final LogStream logStream = raft.getLogStream();
         final LogStreamService service = new LogStreamService(logStream);
 
@@ -91,6 +94,9 @@ public class StartLogStreamServiceController extends ZbActor
             {
                 onOpenCallback.onOpenLogStreamService(raft.getLogStream());
 
+                // remove follower listener
+                raft.removeRaftStateListener(onFollowerListener);
+
                 raft.registerRaftStateListener(onFollowerListener);
             });
         });
@@ -101,7 +107,7 @@ public class StartLogStreamServiceController extends ZbActor
         @Override
         public void onStateChange(int i, DirectBuffer directBuffer, SocketAddress socketAddress, RaftState raftState)
         {
-            if (raftState != RaftState.LEADER)
+            if (raftState == RaftState.FOLLOWER)
             {
                 actor.call(() ->
                 {

@@ -379,7 +379,7 @@ public class ClusterManager extends ZbActor
 
         actor.call(() ->
         {
-            LOG.trace("ADD raft {} for partition {} state {}.", raft.getSocketAddress(), raft.getLogStream()
+            LOG.debug("ADD raft {} for partition {} state {}.", raft.getSocketAddress(), raft.getLogStream()
                                                                                              .getPartitionId(), raft.getState());
             rafts.add(raft);
 
