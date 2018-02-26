@@ -15,10 +15,23 @@
  */
 package io.zeebe.test.broker.protocol.clientapi;
 
+import static io.zeebe.test.util.TestUtil.doRepeatedly;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+
 import io.zeebe.dispatcher.Dispatcher;
 import io.zeebe.dispatcher.Dispatchers;
 import io.zeebe.protocol.Protocol;
-import io.zeebe.protocol.clientapi.*;
+import io.zeebe.protocol.clientapi.ControlMessageType;
+import io.zeebe.protocol.clientapi.EventType;
+import io.zeebe.protocol.clientapi.ExecuteCommandResponseDecoder;
+import io.zeebe.protocol.clientapi.MessageHeaderDecoder;
+import io.zeebe.protocol.clientapi.SubscribedEventDecoder;
 import io.zeebe.test.broker.protocol.MsgPackHelper;
 import io.zeebe.transport.ClientTransport;
 import io.zeebe.transport.RemoteAddress;
@@ -27,11 +40,6 @@ import io.zeebe.transport.Transports;
 import io.zeebe.util.sched.ZbActorScheduler;
 import org.agrona.DirectBuffer;
 import org.junit.rules.ExternalResource;
-
-import java.util.*;
-import java.util.stream.Stream;
-
-import static io.zeebe.test.util.TestUtil.doRepeatedly;
 
 public class ClientApiRule extends ExternalResource
 {
@@ -103,15 +111,14 @@ public class ClientApiRule extends ExternalResource
     @Override
     protected void after()
     {
+        if (transport != null)
+        {
+            transport.close();
+        }
 
         if (sendBuffer != null)
         {
             sendBuffer.close();
-        }
-
-        if (transport != null)
-        {
-            transport.close();
         }
 
         if (scheduler != null)

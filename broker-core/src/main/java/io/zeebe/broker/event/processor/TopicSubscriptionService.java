@@ -17,6 +17,12 @@
  */
 package io.zeebe.broker.event.processor;
 
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
+import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
+
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+
 import io.zeebe.broker.event.TopicSubscriptionServiceNames;
 import io.zeebe.broker.logstreams.processor.MetadataFilter;
 import io.zeebe.broker.logstreams.processor.StreamProcessorIds;
@@ -28,7 +34,12 @@ import io.zeebe.broker.transport.clientapi.SubscribedEventWriter;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.processor.StreamProcessor;
 import io.zeebe.logstreams.processor.StreamProcessorController;
-import io.zeebe.servicecontainer.*;
+import io.zeebe.servicecontainer.Injector;
+import io.zeebe.servicecontainer.Service;
+import io.zeebe.servicecontainer.ServiceGroupReference;
+import io.zeebe.servicecontainer.ServiceName;
+import io.zeebe.servicecontainer.ServiceStartContext;
+import io.zeebe.servicecontainer.ServiceStopContext;
 import io.zeebe.transport.RemoteAddress;
 import io.zeebe.transport.ServerOutput;
 import io.zeebe.transport.ServerTransport;
@@ -38,12 +49,6 @@ import io.zeebe.util.sched.ZbActorScheduler;
 import io.zeebe.util.sched.future.ActorFuture;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import org.agrona.collections.Int2ObjectHashMap;
-
-import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-
-import static io.zeebe.broker.logstreams.LogStreamServiceNames.SNAPSHOT_STORAGE_SERVICE;
-import static io.zeebe.broker.system.SystemServiceNames.ACTOR_SCHEDULER_SERVICE;
 
 public class TopicSubscriptionService extends ZbActor implements Service<TopicSubscriptionService>, TransportListener
 {
@@ -158,32 +163,29 @@ public class TopicSubscriptionService extends ZbActor implements Service<TopicSu
             MetadataFilter eventFilter)
     {
         final CompletableActorFuture<Void> completableActorFuture = new CompletableActorFuture<>();
-        actor.call(() ->
+
+        final StreamProcessorService streamProcessorService = new StreamProcessorService(
+            processorName.getName(),
+            processorId,
+            streamProcessor)
+            .eventFilter(eventFilter);
+
+        final CompletableFuture<Void> installFuture = serviceContext.createService(processorName, streamProcessorService)
+            .dependency(logStreamName, streamProcessorService.getLogStreamInjector())
+            .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
+            .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
+            .install();
+
+        installFuture.whenComplete((aVoid, throwable) ->
         {
-
-            final StreamProcessorService streamProcessorService = new StreamProcessorService(
-                processorName.getName(),
-                processorId,
-                streamProcessor)
-                .eventFilter(eventFilter);
-
-            final CompletableFuture<Void> installFuture = serviceContext.createService(processorName, streamProcessorService)
-                .dependency(logStreamName, streamProcessorService.getLogStreamInjector())
-                .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
-                .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
-                .install();
-
-            installFuture.whenComplete((aVoid, throwable) ->
+            if (throwable == null)
             {
-                if (throwable == null)
-                {
-                    completableActorFuture.complete(null);
-                }
-                else
-                {
-                    // TODO LOG
-                }
-            });
+                completableActorFuture.complete(null);
+            }
+            else
+            {
+                // TODO LOG
+            }
         });
 
         return completableActorFuture;
