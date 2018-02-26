@@ -121,13 +121,12 @@ public class RaftService implements Service<Raft>
                     raft.registerRaftStateListener(raftStateListener);
 
                     raft.addMembers(members);
-                    // TODO submit raft
                     final ZbActorScheduler actorScheduler = actorSchedulerInjector.getValue();
-//                actorScheduler.submitActor(raft);
+                    actorScheduler.submitActor(raft);
                 }
                 else
                 {
-                    Loggers.CLUSTERING_LOGGER.debug("Failed to open log stream.");
+                    Loggers.CLUSTERING_LOGGER.debug("Failed to appendEvent log stream.");
                 }
                 raftServiceOpenFuture.complete(null);
             }));

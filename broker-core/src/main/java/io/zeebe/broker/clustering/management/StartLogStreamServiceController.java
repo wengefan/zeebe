@@ -63,6 +63,7 @@ public class StartLogStreamServiceController extends ZbActor
     protected void onActorStarted()
     {
         actor.run(this::startLogStream);
+        actor.onCondition("alive-start-logstream-ctrl", () -> { });
     }
 
     private void startLogStream()

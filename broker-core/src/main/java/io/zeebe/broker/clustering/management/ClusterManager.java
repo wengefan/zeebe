@@ -200,10 +200,9 @@ public class ClusterManager extends ZbActor
             }
             else
             {
-                Loggers.CLUSTERING_LOGGER.error("Failed to open a subscription.");
+                Loggers.CLUSTERING_LOGGER.error("Failed to appendEvent a subscription.");
             }
         });
-
     }
 
     private void inviteUpdatedMember(SocketAddress updatedMember)
@@ -376,6 +375,7 @@ public class ClusterManager extends ZbActor
     {
         // this must be determined before we cross the async boundary to avoid race conditions
         final boolean isRaftCreator = raft.getMemberSize() == 0;
+        LOG.debug("ADD RAFT callback");
 
         actor.call(() ->
         {

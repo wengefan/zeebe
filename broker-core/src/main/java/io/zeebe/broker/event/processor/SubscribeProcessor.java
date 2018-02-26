@@ -65,7 +65,7 @@ public class SubscribeProcessor implements EventProcessor
 
         if (subscriptionName.capacity() > maximumNameLength)
         {
-            failedRequestState.wrapError("Cannot open topic subscription " + subscriberEvent.getNameAsString() +
+            failedRequestState.wrapError("Cannot appendEvent topic subscription " + subscriberEvent.getNameAsString() +
                     ". Subscription name must be " + maximumNameLength + " characters or shorter.");
             state = failedRequestState;
             return;

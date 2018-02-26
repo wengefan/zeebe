@@ -17,6 +17,7 @@
  */
 package io.zeebe.broker.system.log;
 
+import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.management.PartitionManager;
 import io.zeebe.broker.logstreams.LogStreamServiceNames;
 import io.zeebe.broker.logstreams.processor.*;
@@ -64,6 +65,7 @@ public class SystemPartitionManager implements Service<SystemPartitionManager>
 
     public void addSystemPartition(LogStream logStream, ServiceName<LogStream> serviceName)
     {
+        Loggers.SYSTEM_LOGGER.debug("Add system partiton");
         final ServerOutput serverOutput = clientApiTransport.getOutput();
 
         final TypedStreamEnvironment streamEnvironment = new TypedStreamEnvironment(logStream, serverOutput);

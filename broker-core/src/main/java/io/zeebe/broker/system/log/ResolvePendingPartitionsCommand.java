@@ -19,6 +19,7 @@ package io.zeebe.broker.system.log;
 
 import java.util.Iterator;
 
+import io.zeebe.broker.Loggers;
 import io.zeebe.broker.clustering.management.PartitionManager;
 import io.zeebe.broker.clustering.member.Member;
 import io.zeebe.broker.logstreams.processor.TypedEvent;

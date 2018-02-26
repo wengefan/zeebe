@@ -71,6 +71,7 @@ public class ActorSchedulerService implements Service<ZbActorScheduler>
     @Override
     public void start(ServiceStartContext serviceContext)
     {
+        LOG.debug("Start scheduler with {} threads", availableThreads);
         scheduler = new ZbActorScheduler(availableThreads);
         scheduler.start();
     }

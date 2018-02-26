@@ -54,7 +54,8 @@ public class ClusterManagerService implements Service<ClusterManager>
 
             clusterManager = new ClusterManager(context, serviceContainer, config);
 
-            context.getActorScheduler().submitActor(clusterManager);
+            actorSchedulerInjector.getValue().submitActor(clusterManager);
+//            context.getActorScheduler().submitActor(clusterManager);
         });
 
     }
