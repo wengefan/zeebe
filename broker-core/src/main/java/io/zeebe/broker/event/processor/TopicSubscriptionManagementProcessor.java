@@ -246,38 +246,33 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
             DirectBuffer subscriptionName,
             int prefetchCapacity)
     {
-
         final CompletableActorFuture<TopicSubscriptionPushProcessor> future = new CompletableActorFuture<>();
-        actor.call(() ->
+        final TopicSubscriptionPushProcessor processor = new TopicSubscriptionPushProcessor(
+            clientChannelId,
+            subscriberKey,
+            resumePosition,
+            subscriptionName,
+            prefetchCapacity,
+            eventWriterFactory.get());
+
+        final ServiceName<StreamProcessorController> serviceName = TopicSubscriptionServiceNames.subscriptionPushServiceName(streamServiceName.getName(), processor.getNameAsString());
+
+        final StreamProcessorService streamProcessorService = new StreamProcessorService(
+            serviceName.getName(),
+            StreamProcessorIds.TOPIC_SUBSCRIPTION_PUSH_PROCESSOR_ID,
+            processor)
+            .eventFilter(TopicSubscriptionPushProcessor.eventFilter())
+            .readOnly(true);
+
+        final CompletableFuture<Void> installFuture = serviceContext.createService(serviceName, streamProcessorService)
+            .dependency(streamServiceName, streamProcessorService.getLogStreamInjector())
+            .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
+            .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
+            .install();
+
+        installFuture.whenComplete((aVoid, throwable) ->
         {
-
-            final TopicSubscriptionPushProcessor processor = new TopicSubscriptionPushProcessor(
-                clientChannelId,
-                subscriberKey,
-                resumePosition,
-                subscriptionName,
-                prefetchCapacity,
-                eventWriterFactory.get());
-
-            final ServiceName<StreamProcessorController> serviceName = TopicSubscriptionServiceNames.subscriptionPushServiceName(streamServiceName.getName(), processor.getNameAsString());
-
-            final StreamProcessorService streamProcessorService = new StreamProcessorService(
-                serviceName.getName(),
-                StreamProcessorIds.TOPIC_SUBSCRIPTION_PUSH_PROCESSOR_ID,
-                processor)
-                .eventFilter(TopicSubscriptionPushProcessor.eventFilter())
-                .readOnly(true);
-
-            final CompletableFuture<Void> installFuture = serviceContext.createService(serviceName, streamProcessorService)
-                .dependency(streamServiceName, streamProcessorService.getLogStreamInjector())
-                .dependency(SNAPSHOT_STORAGE_SERVICE, streamProcessorService.getSnapshotStorageInjector())
-                .dependency(ACTOR_SCHEDULER_SERVICE, streamProcessorService.getActorSchedulerInjector())
-                .install();
-
-            installFuture.whenComplete((aVoid, throwable) ->
-            {
-                future.complete(processor);
-            });
+            future.complete(processor);
         });
         return future;
     }
@@ -410,9 +405,9 @@ public class TopicSubscriptionManagementProcessor implements StreamProcessor
                 .setName(openedSubscriptionName, 0, openedSubscriptionName.capacity())
                 .setAckPosition(subscriberEvent.getStartPosition() - 1);
 
-            metadata.eventType(EventType.SUBSCRIPTION_EVENT)
-                .requestStreamId(-1)
-                .requestId(-1);
+            metadata.eventType(EventType.SUBSCRIPTION_EVENT);
+//                .requestStreamId(-1)
+//                .requestId(-1);
 
             return writer
                     .key(currentEvent.getKey())
