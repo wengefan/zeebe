@@ -99,7 +99,7 @@ public class ControlMessageHandlerManager extends ZbActor implements FragmentHan
     @Override
     protected void onActorStarted()
     {
-        final ActorFuture<Subscription> subscriptionAsync = controlMessageDispatcher.getSubscriptionAsync(TRANSPORT_CONTROL_MESSAGE_HANDLER_SUBSCRIPTION);
+        final ActorFuture<Subscription> subscriptionAsync = controlMessageDispatcher.openSubscriptionAsync(TRANSPORT_CONTROL_MESSAGE_HANDLER_SUBSCRIPTION);
 
         actor.runOnCompletion(subscriptionAsync, (sub, throwable) ->
         {
@@ -147,11 +147,6 @@ public class ControlMessageHandlerManager extends ZbActor implements FragmentHan
         {
             return CompletableActorFuture.completed(null);
         }
-    }
-
-    public boolean isOpen()
-    {
-        return isOpenend.get();
     }
 
     @Override

@@ -20,6 +20,7 @@ package io.zeebe.broker.transport.clientapi;
 import java.util.EnumMap;
 import java.util.function.Consumer;
 
+import io.zeebe.dispatcher.Subscription;
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.Int2ObjectHashMap;

@@ -72,6 +72,7 @@ public class ClientApiRule extends ExternalResource
     protected void before() throws Throwable
     {
         scheduler = new ZbActorScheduler(1);
+        scheduler.start();
 
         sendBuffer = Dispatchers.create("clientSendBuffer")
             .bufferSize(32 * 1024 * 1024)

@@ -97,8 +97,7 @@ public class TransportComponent implements Component
         final ServiceName<Dispatcher> controlMessageBufferService = createReceiveBuffer(
             serviceContainer,
             CLIENT_API_SERVER_NAME,
-            transportComponentCfg.clientApi.getReceiveBufferSize(transportComponentCfg.defaultReceiveBufferSize),
-            DispatcherSubscriptionNames.TRANSPORT_CONTROL_MESSAGE_HANDLER_SUBSCRIPTION);
+            transportComponentCfg.clientApi.getReceiveBufferSize(transportComponentCfg.defaultReceiveBufferSize));
 
         final ClientApiMessageHandlerService messageHandlerService = new ClientApiMessageHandlerService();
         serviceContainer.createService(CLIENT_API_MESSAGE_HANDLER, messageHandlerService)
@@ -205,11 +204,10 @@ public class TransportComponent implements Component
             .install();
     }
 
-    protected void createDispatcher(ServiceContainer serviceContainer, ServiceName<Dispatcher> name, int bufferSize, String... subscriptions)
+    protected void createDispatcher(ServiceContainer serviceContainer, ServiceName<Dispatcher> name, int bufferSize)
     {
         final DispatcherBuilder dispatcherBuilder = Dispatchers.create(null)
-            .bufferSize(bufferSize)
-            .subscriptions(subscriptions);
+            .bufferSize(bufferSize);
 
         final DispatcherService receiveBufferService = new DispatcherService(dispatcherBuilder);
         serviceContainer.createService(name, receiveBufferService)
@@ -221,7 +219,7 @@ public class TransportComponent implements Component
     protected ServiceName<Dispatcher> createSendBuffer(ServiceContainer serviceContainer, String transportName, int bufferSize)
     {
         final ServiceName<Dispatcher> serviceName = TransportServiceNames.sendBufferName(transportName);
-        createDispatcher(serviceContainer, serviceName, bufferSize); // TODO subscription names?!
+        createDispatcher(serviceContainer, serviceName, bufferSize);
 
         return serviceName;
     }
@@ -229,11 +227,10 @@ public class TransportComponent implements Component
     protected ServiceName<Dispatcher> createReceiveBuffer(
             ServiceContainer serviceContainer,
             String transportName,
-            int bufferSize,
-            String... subscriptionNames)
+            int bufferSize)
     {
         final ServiceName<Dispatcher> serviceName = TransportServiceNames.receiveBufferName(transportName);
-        createDispatcher(serviceContainer, serviceName, bufferSize, subscriptionNames);
+        createDispatcher(serviceContainer, serviceName, bufferSize);
 
         return serviceName;
     }
